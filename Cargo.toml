@@ -19,4 +19,4 @@ tabled = "0.20.0"
 clap = { version = "4.0", features = ["derive"] }
 dotenv = "0.15"
 tokio-util = { version = "0.7", features = ["codec"] }
-rmcp = { version = "0.1", features = ["client", "transport-child-process"] }
+rmcp = { version = "0.5.0", features = ["client", "transport-child-process"] }

@@ -144,15 +144,17 @@ async fn handle_tools_list_command(config: Config) -> Result<()> {
                 println!();
                 for (index, tool) in tools.iter().enumerate() {
                     println!("{}. {}", index + 1, tool.name);
-                    println!("   Description: {}", tool.description);
+                    if let Some(description) = &tool.description {
+                        println!("   Description: {}", description);
+                    } else {
+                        println!("   Description: <No description available>");
+                    }
                     let schema_value = tool.schema_as_json_value();
-                    if let Some(properties) = schema_value.get("properties") {
-                        if let Some(props_obj) = properties.as_object() {
-                            if !props_obj.is_empty() {
+                    if let Some(properties) = schema_value.get("properties")
+                        && let Some(props_obj) = properties.as_object()
+                            && !props_obj.is_empty() {
                                 println!("   Parameters: {}", props_obj.keys().cloned().collect::<Vec<_>>().join(", "));
                             }
-                        }
-                    }
                     println!();
                 }
             }

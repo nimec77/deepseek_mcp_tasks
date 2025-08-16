@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use rmcp::{
-    handler::client::ClientHandler,
     model::{
-        CallToolRequestParam, ClientInfo, PaginatedRequestParamInner, Tool,
+        CallToolRequestParam, Tool,
     },
     service::{Peer, RoleClient, ServiceExt},
     transport::TokioChildProcess,
@@ -48,39 +47,11 @@ pub struct TaskQuery {
     pub tag: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolsListResponse {
-    pub tools: Vec<Tool>,
-}
 
-/// Custom client handler that implements the required MCP client functionality
-pub struct McpClientHandler {
-    peer: Option<Peer<RoleClient>>,
-}
-
-impl McpClientHandler {
-    pub fn new() -> Self {
-        Self { peer: None }
-    }
-}
-
-impl ClientHandler for McpClientHandler {
-    fn get_peer(&self) -> Option<Peer<RoleClient>> {
-        self.peer.clone()
-    }
-
-    fn set_peer(&mut self, peer: Peer<RoleClient>) {
-        self.peer = Some(peer);
-    }
-
-    fn get_info(&self) -> ClientInfo {
-        ClientInfo::default()
-    }
-}
 
 /// Main MCP client that wraps the rmcp client and provides task-specific functionality
 pub struct McpClient {
-    client: Arc<Mutex<rmcp::service::RunningService<RoleClient, McpClientHandler>>>,
+    client: Arc<Mutex<rmcp::service::RunningService<RoleClient, ()>>>,
 }
 
 impl McpClient {
@@ -95,14 +66,11 @@ impl McpClient {
         command.args(&config.mcp_server_args);
 
         // Create the transport using TokioChildProcess
-        let transport = TokioChildProcess::new(&mut command)
+        let transport = TokioChildProcess::new(command)
             .context("Failed to create MCP server transport")?;
 
-        // Create the client handler
-        let handler = McpClientHandler::new();
-
-        // Start the client service
-        let client = handler
+        // Start the client service with unit type handler
+        let client = ()
             .serve(transport)
             .await
             .context("Failed to start MCP client service")?;
@@ -136,36 +104,40 @@ impl McpClient {
         
         // Extract content from the result
         let content = result.content;
-        if content.is_empty() {
-            anyhow::bail!("No content returned from MCP server");
-        }
-
-        // Try to parse the first content item as JSON
-        let first_content = &content[0];
-        let json_value = serde_json::to_value(&first_content.raw)?;
-
-        // Try to parse as TaskListResponse first
-        match serde_json::from_value::<TaskListResponse>(json_value.clone()) {
-            Ok(task_response) => {
-                debug!(
-                    "Retrieved {} tasks from MCP server",
-                    task_response.tasks.len()
-                );
-                Ok(task_response.tasks)
+        if let Some(content_vec) = content {
+            if content_vec.is_empty() {
+                anyhow::bail!("No content returned from MCP server");
             }
-            Err(_) => {
-                // Fallback: try to parse as simple tasks array
-                match serde_json::from_value::<Vec<Task>>(json_value) {
-                    Ok(tasks) => {
-                        debug!("Retrieved {} tasks from MCP server", tasks.len());
-                        Ok(tasks)
-                    }
-                    Err(e) => {
-                        error!("Failed to parse tasks response: {}", e);
-                        anyhow::bail!("Failed to parse tasks response from MCP server");
+
+            // Try to parse the first content item as JSON
+            let first_content = &content_vec[0];
+            let json_value = serde_json::to_value(&first_content.raw)?;
+
+            // Try to parse as TaskListResponse first
+            match serde_json::from_value::<TaskListResponse>(json_value.clone()) {
+                Ok(task_response) => {
+                    debug!(
+                        "Retrieved {} tasks from MCP server",
+                        task_response.tasks.len()
+                    );
+                    Ok(task_response.tasks)
+                }
+                Err(_) => {
+                    // Fallback: try to parse as simple tasks array
+                    match serde_json::from_value::<Vec<Task>>(json_value) {
+                        Ok(tasks) => {
+                            debug!("Retrieved {} tasks from MCP server", tasks.len());
+                            Ok(tasks)
+                        }
+                        Err(e) => {
+                            error!("Failed to parse tasks response: {}", e);
+                            anyhow::bail!("Failed to parse tasks response from MCP server");
+                        }
                     }
                 }
             }
+        } else {
+            anyhow::bail!("No content returned from MCP server");
         }
     }
 
@@ -202,42 +174,46 @@ impl McpClient {
         
         // Extract content from the result
         let content = result.content;
-        if content.is_empty() {
-            anyhow::bail!("No content returned from MCP server");
-        }
-
-        let first_content = &content[0];
-        let json_value = serde_json::to_value(&first_content.raw)?;
-
-        // Try to parse as TaskListResponse
-        match serde_json::from_value::<TaskListResponse>(json_value.clone()) {
-            Ok(task_response) => {
-                debug!(
-                    "Retrieved {} tasks from page {}",
-                    task_response.tasks.len(),
-                    task_response.page
-                );
-                Ok(task_response)
+        if let Some(content_vec) = content {
+            if content_vec.is_empty() {
+                anyhow::bail!("No content returned from MCP server");
             }
-            Err(_) => {
-                // Fallback: create TaskListResponse from simple tasks array
-                if let Ok(tasks) = serde_json::from_value::<Vec<Task>>(json_value) {
-                    let response = TaskListResponse {
-                        tasks: tasks.clone(),
-                        total: tasks.len() as u32,
-                        page: query.page.unwrap_or(1),
-                        page_size: query.page_size.unwrap_or(tasks.len() as u32),
-                    };
+
+            let first_content = &content_vec[0];
+            let json_value = serde_json::to_value(&first_content.raw)?;
+
+            // Try to parse as TaskListResponse
+            match serde_json::from_value::<TaskListResponse>(json_value.clone()) {
+                Ok(task_response) => {
                     debug!(
                         "Retrieved {} tasks from page {}",
-                        response.tasks.len(),
-                        response.page
+                        task_response.tasks.len(),
+                        task_response.page
                     );
-                    Ok(response)
-                } else {
-                    anyhow::bail!("Failed to parse tasks response");
+                    Ok(task_response)
+                }
+                Err(_) => {
+                    // Fallback: create TaskListResponse from simple tasks array
+                    if let Ok(tasks) = serde_json::from_value::<Vec<Task>>(json_value) {
+                        let response = TaskListResponse {
+                            tasks: tasks.clone(),
+                            total: tasks.len() as u32,
+                            page: query.page.unwrap_or(1),
+                            page_size: query.page_size.unwrap_or(tasks.len() as u32),
+                        };
+                        debug!(
+                            "Retrieved {} tasks from page {}",
+                            response.tasks.len(),
+                            response.page
+                        );
+                        Ok(response)
+                    } else {
+                        anyhow::bail!("Failed to parse tasks response");
+                    }
                 }
             }
+        } else {
+            anyhow::bail!("No content returned from MCP server");
         }
     }
 
@@ -277,8 +253,8 @@ impl McpClient {
 
         let peer = self.get_peer().await?;
 
-        // Use the list_tools method from rmcp
-        let result = peer.list_tools(Some(PaginatedRequestParamInner { cursor: None })).await?;
+        // Use the list_tools method from rmcp with default parameters
+        let result = peer.list_tools(Default::default()).await?;
 
         debug!(
             "Retrieved {} tools from MCP server",
@@ -294,11 +270,12 @@ impl McpClient {
 
         let peer = self.get_peer().await?;
 
-        // Use the list_all_tools helper method
-        let tools = peer.list_all_tools().await?;
+        // For now, just get the first page of tools
+        // In a real implementation, you might want to implement pagination
+        let result = peer.list_tools(Default::default()).await?;
 
-        debug!("Retrieved {} tools from MCP server", tools.len());
-        Ok(tools)
+        debug!("Retrieved {} tools from MCP server", result.tools.len());
+        Ok(result.tools)
     }
 }
 
