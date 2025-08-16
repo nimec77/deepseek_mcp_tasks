@@ -7,6 +7,7 @@ mod deepseek_client;
 mod logger;
 mod mcp_client;
 mod table_formatter;
+mod tooling;
 
 use config::Config;
 use deepseek_client::DeepSeekClient;
@@ -43,6 +44,8 @@ enum Commands {
     },
     /// Analyze pending tasks using DeepSeek AI
     Analyze,
+    /// Analyze pending tasks using DeepSeek AI with MCP tools
+    AnalyzeWithTools,
 }
 
 #[tokio::main]
@@ -94,6 +97,9 @@ async fn main() -> Result<()> {
         }
         Commands::Analyze => {
             handle_analyze_command(config).await?;
+        }
+        Commands::AnalyzeWithTools => {
+            handle_analyze_with_tools_command(config).await?;
         }
     }
 
@@ -153,6 +159,68 @@ async fn handle_analyze_command(config: Config) -> Result<()> {
             eprintln!("1. Your DEEPSEEK_API_KEY is valid");
             eprintln!("2. You have sufficient API credits");
             eprintln!("3. Your internet connection is working");
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_analyze_with_tools_command(config: Config) -> Result<()> {
+    info!("Starting DeepSeek analysis with MCP tools");
+
+    // Create MCP client
+    let mcp_client = McpClient::new(&config).await?;
+
+    // Fetch pending tasks
+    let pending_tasks = mcp_client.get_tasks_by_status("pending").await?;
+
+    if pending_tasks.is_empty() {
+        println!("🎉 No pending tasks found to analyze!");
+        return Ok(());
+    }
+
+    info!("Found {} pending tasks for tool-enabled analysis", pending_tasks.len());
+
+    // Create DeepSeek client
+    let deepseek_client = DeepSeekClient::new().map_err(|e| {
+        error!("Failed to create DeepSeek client: {}", e);
+        eprintln!("❌ Failed to initialize DeepSeek client: {}", e);
+        eprintln!("\nPlease ensure you have set the DEEPSEEK_API_KEY environment variable.");
+        eprintln!("You can add it to your .env file or export it in your shell:");
+        eprintln!("export DEEPSEEK_API_KEY=your_api_key_here");
+        e
+    })?;
+
+    // Show pending tasks before analysis
+    println!("\n📋 Found {} pending tasks:", pending_tasks.len());
+    for (idx, task) in pending_tasks.iter().enumerate() {
+        println!("  {}. {} (Status: {})", idx + 1, task.title, task.status);
+        if let Some(priority) = &task.priority {
+            println!("     Priority: {}", priority);
+        }
+        if let Some(due_date) = &task.due_date {
+            println!("     Due: {}", due_date);
+        }
+    }
+
+    println!("\n🚀 Analyzing tasks with DeepSeek AI using MCP tools...");
+    println!("📡 The AI can now query the MCP server directly for real-time task data!\n");
+
+    // Analyze the tasks using DeepSeek with MCP tools
+    match deepseek_client.analyze_tasks_with_tools(pending_tasks, &mcp_client).await {
+        Ok(analysis) => {
+            println!("🔧 DeepSeek Analysis with MCP Tools:\n");
+            println!("{}", analysis);
+        }
+        Err(e) => {
+            error!("DeepSeek tool-enabled analysis failed: {}", e);
+            eprintln!("❌ Failed to analyze tasks with tools: {}", e);
+            eprintln!("\nPlease check:");
+            eprintln!("1. Your DEEPSEEK_API_KEY is valid");
+            eprintln!("2. You have sufficient API credits");
+            eprintln!("3. Your internet connection is working");
+            eprintln!("4. The MCP server is running correctly");
             std::process::exit(1);
         }
     }

@@ -50,7 +50,7 @@ pub struct TaskQuery {
 
 /// Main MCP client that wraps the rmcp client and provides task-specific functionality
 pub struct McpClient {
-    client: Arc<Mutex<rmcp::service::RunningService<RoleClient, ()>>>,
+    pub client: Arc<Mutex<rmcp::service::RunningService<RoleClient, ()>>>,
 }
 
 impl McpClient {

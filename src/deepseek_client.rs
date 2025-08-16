@@ -1,15 +1,20 @@
 use anyhow::Result;
 use genai::chat::{ChatMessage, ChatRequest};
 use genai::Client;
+use serde_json::Value;
 use std::env;
-use tracing::info;
+use tracing::{debug, info, warn};
+
+use crate::tooling::{
+    DeepSeekApiClient, ChatRequest as ToolChatRequest, Message, ToolObject,
+    execute_mcp_tool_call, create_mcp_tool_definitions, create_task_tools, execute_task_tool
+};
 
 const DEEPSEEK_MODEL: &str = "deepseek-chat";
 
-
-
 pub struct DeepSeekClient {
     client: Client,
+    deepseek_api: DeepSeekApiClient,
     model: String,
 }
 
@@ -18,15 +23,16 @@ impl DeepSeekClient {
         info!("Building DeepSeek API client...");
 
         // Verify API key is set
-        if env::var("DEEPSEEK_API_KEY").is_err() {
-            anyhow::bail!("DEEPSEEK_API_KEY environment variable is not set");
-        }
+        let api_key = env::var("DEEPSEEK_API_KEY")
+            .map_err(|_| anyhow::anyhow!("DEEPSEEK_API_KEY environment variable is not set"))?;
 
         let client = Client::default();
+        let deepseek_api = DeepSeekApiClient::new(api_key);
 
         info!("DeepSeek client created successfully");
         Ok(Self {
             client,
+            deepseek_api,
             model: DEEPSEEK_MODEL.to_string(),
         })
     }
@@ -111,6 +117,141 @@ Please provide a structured analysis that will help prioritize and organize the 
             task_summary
         )
     }
+
+    /// Analyze tasks using DeepSeek with MCP tools available
+    pub async fn analyze_tasks_with_tools(
+        &self,
+        tasks: Vec<crate::mcp_client::Task>,
+        mcp_client: &crate::mcp_client::McpClient,
+    ) -> Result<String> {
+        info!("Analyzing tasks with DeepSeek using MCP tools");
+
+        // Get available MCP tools
+        let tools = create_mcp_tool_definitions(mcp_client).await?;
+        let task_tools = create_task_tools();
+        
+        let mut all_tools = tools;
+        all_tools.extend(task_tools);
+
+        let task_summary = self.format_tasks_for_analysis(&tasks);
+        let analysis_prompt = format!(
+            "Please analyze these {} tasks. You have access to MCP tools to get more detailed information about tasks, create task breakdowns, or perform analysis. Feel free to use any available tools to provide a comprehensive analysis.
+
+Here are the initial tasks for reference:
+
+{}
+
+Provide insights about priorities, dependencies, complexity, and actionable recommendations. You can use the available tools to get more data or perform specific analysis operations.",
+            tasks.len(),
+            task_summary
+        );
+
+        // Start the conversation with tools available
+        self.chat_with_tools(&analysis_prompt, &all_tools, mcp_client).await
+    }
+
+    /// Chat with DeepSeek using available tools
+    pub async fn chat_with_tools(
+        &self,
+        user_message: &str,
+        tools: &[ToolObject],
+        mcp_client: &crate::mcp_client::McpClient,
+    ) -> Result<String> {
+        debug!("Starting chat with {} tools available", tools.len());
+
+        let mut messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: "You are an AI assistant that can analyze tasks and manage todo lists. You have access to various tools to help you provide detailed, accurate information. Use tools when they can help provide better answers.".to_string(),
+                tool_call_id: None,
+            },
+            Message {
+                role: "user".to_string(),
+                content: user_message.to_string(),
+                tool_call_id: None,
+            },
+        ];
+
+        // Try up to 5 tool call iterations to avoid infinite loops
+        for iteration in 0..5 {
+            debug!("Chat iteration {} starting", iteration + 1);
+
+            let request = ToolChatRequest {
+                model: self.model.clone(),
+                messages: messages.clone(),
+                tools: Some(tools.to_vec()),
+                tool_choice: Some("auto".to_string()),
+                temperature: 0.7,
+                max_tokens: 4000,
+            };
+
+            let response = self.deepseek_api.chat_with_tools(request).await?;
+            
+            if let Some(choice) = response.choices.first() {
+                // Add the assistant's response to the conversation
+                if let Some(content) = &choice.message.content
+                    && !content.is_empty() {
+                        messages.push(Message {
+                            role: "assistant".to_string(),
+                            content: content.clone(),
+                            tool_call_id: None,
+                        });
+                    }
+
+                // Check if there are tool calls to handle
+                if let Some(tool_calls) = &choice.message.tool_calls {
+                    info!("Processing {} tool calls", tool_calls.len());
+
+                    // Process each tool call
+                    for tool_call in tool_calls {
+                        debug!("Executing tool call: {}", tool_call.function.name);
+
+                        // Execute the tool call
+                        let tool_result = self.execute_tool_call(tool_call, mcp_client).await?;
+
+                        // Add the tool result back to the conversation
+                        messages.push(Message {
+                            role: "tool".to_string(),
+                            content: serde_json::to_string(&tool_result)?,
+                            tool_call_id: Some(tool_call.id.clone()),
+                        });
+                    }
+
+                    // Continue the conversation with the tool results
+                    continue;
+                } else {
+                    // No tool calls, return the final response
+                    return Ok(choice.message.content.clone().unwrap_or_default());
+                }
+            } else {
+                anyhow::bail!("No response choices returned from DeepSeek API");
+            }
+        }
+
+        warn!("Reached maximum iteration limit for tool calls");
+        Ok("Analysis completed with maximum tool call iterations reached.".to_string())
+    }
+
+    /// Execute a tool call by routing it to the appropriate MCP function
+    async fn execute_tool_call(
+        &self,
+        tool_call: &crate::tooling::ToolCall,
+        mcp_client: &crate::mcp_client::McpClient,
+    ) -> Result<Value> {
+        let tool_name = &tool_call.function.name;
+        let arguments: Value = serde_json::from_str(&tool_call.function.arguments)
+            .unwrap_or_else(|_| serde_json::json!({}));
+
+        debug!("Executing tool '{}' with args: {}", tool_name, arguments);
+
+        match tool_name.as_str() {
+            "list_tasks" | "get_task" | "task_stats" => {
+                execute_task_tool(mcp_client, tool_name, &arguments).await
+            }
+            _ => {
+                // Try to execute as an MCP tool
+                execute_mcp_tool_call(mcp_client, tool_name, &arguments).await
+            }
+        }
+    }
 }
-
-
