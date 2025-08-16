@@ -70,7 +70,8 @@ async fn main() -> Result<()> {
             eprintln!("Error: {}", e);
             eprintln!("\nPlease ensure you have set the following environment variables:");
             eprintln!("- DEEPSEEK_API_KEY: Your DeepSeek API key");
-            eprintln!("- MCP_SERVER_URL (optional): MCP server URL (default: http://127.0.0.1:8000)");
+            eprintln!("- MCP_SERVER_COMMAND (optional): MCP server command (default: node)");
+            eprintln!("- MCP_SERVER_ARGS (optional): MCP server arguments (default: todo-server.js)");
             eprintln!("\nYou can create a .env file with these variables or export them in your shell.");
             std::process::exit(1);
         }
@@ -102,7 +103,7 @@ async fn handle_list_command(
     info!("Fetching tasks from MCP server");
 
     // Create MCP client
-    let mcp_client = McpClient::new(&config)?;
+    let mcp_client = McpClient::new(&config).await?;
 
     // Fetch unfinished tasks
     let unfinished_tasks = mcp_client.get_unfinished_tasks().await?;
@@ -169,7 +170,7 @@ async fn handle_list_command(
 async fn handle_health_command(config: Config) -> Result<()> {
     info!("Checking MCP server health");
 
-    let mcp_client = McpClient::new(&config)?;
+    let mcp_client = McpClient::new(&config).await?;
 
     match mcp_client.health_check().await {
         Ok(()) => {
@@ -178,7 +179,7 @@ async fn handle_health_command(config: Config) -> Result<()> {
         Err(e) => {
             error!("MCP server health check failed: {}", e);
             eprintln!("❌ MCP server health check failed: {}", e);
-            eprintln!("Please ensure the MCP server is running at: {}", config.mcp_server_url);
+            eprintln!("Please ensure the MCP server command is correct: {}", config.mcp_server_command);
             std::process::exit(1);
         }
     }
@@ -189,7 +190,7 @@ async fn handle_health_command(config: Config) -> Result<()> {
 async fn handle_stats_command(config: Config) -> Result<()> {
     info!("Fetching task statistics");
 
-    let mcp_client = McpClient::new(&config)?;
+    let mcp_client = McpClient::new(&config).await?;
 
     // Fetch all tasks
     let all_tasks = mcp_client.get_all_tasks().await?;

@@ -7,7 +7,7 @@ pub struct Config {
     pub deepseek_api_key: String,
     pub deepseek_api_url: String,
     pub deepseek_model: String,
-    pub mcp_server_url: String,
+    pub mcp_server_command: String,
     pub request_timeout: u64,
     pub max_retries: u32,
     pub retry_delay: u64,
@@ -19,7 +19,7 @@ impl Default for Config {
             deepseek_api_key: String::new(),
             deepseek_api_url: "https://api.deepseek.com/v1/chat/completions".to_string(),
             deepseek_model: "deepseek-chat".to_string(),
-            mcp_server_url: "http://127.0.0.1:8000".to_string(),
+            mcp_server_command: "node".to_string(),
             request_timeout: 30,
             max_retries: 3,
             retry_delay: 1000,
@@ -40,8 +40,9 @@ impl Config {
         let deepseek_model = env::var("DEEPSEEK_MODEL")
             .unwrap_or_else(|_| "deepseek-chat".to_string());
 
-        let mcp_server_url = env::var("MCP_SERVER_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8000".to_string());
+        let mcp_server_command = env::var("MCP_SERVER_COMMAND")
+            .unwrap_or_else(|_| "node".to_string());
+        
 
         let request_timeout = env::var("REQUEST_TIMEOUT")
             .unwrap_or_else(|_| "30".to_string())
@@ -62,7 +63,7 @@ impl Config {
             deepseek_api_key,
             deepseek_api_url,
             deepseek_model,
-            mcp_server_url,
+            mcp_server_command,
             request_timeout,
             max_retries,
             retry_delay,
@@ -82,8 +83,8 @@ impl Config {
             anyhow::bail!("DeepSeek model cannot be empty");
         }
 
-        if self.mcp_server_url.is_empty() {
-            anyhow::bail!("MCP server URL cannot be empty");
+        if self.mcp_server_command.is_empty() {
+            anyhow::bail!("MCP server command cannot be empty");
         }
 
         Ok(())

@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
-use reqwest::Client;
 use anyhow::{Context, Result};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
+use tokio::process::{Child, Command};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
+use tokio::sync::Mutex;
+use std::sync::Arc;
+
 use crate::config::Config;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,114 +39,310 @@ pub struct TaskQuery {
     pub tag: Option<String>,
 }
 
-#[derive(Debug)]
+// JSON-RPC structures for MCP protocol
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonRpcRequest {
+    pub jsonrpc: String,
+    pub id: String,
+    pub method: String,
+    pub params: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonRpcResponse {
+    pub jsonrpc: String,
+    pub id: String,
+    pub result: Option<serde_json::Value>,
+    pub error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonRpcError {
+    pub code: i32,
+    pub message: String,
+    pub data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InitializeRequest {
+    pub protocol_version: String,
+    pub capabilities: ClientCapabilities,
+    pub client_info: ClientInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientCapabilities {
+    pub roots: Option<RootsCapability>,
+    pub sampling: Option<SamplingCapability>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RootsCapability {
+    pub list_changed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SamplingCapability {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientInfo {
+    pub name: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InitializeResponse {
+    pub protocol_version: String,
+    pub capabilities: ServerCapabilities,
+    pub server_info: ServerInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerCapabilities {
+    pub tools: Option<serde_json::Value>,
+    pub resources: Option<serde_json::Value>,
+    pub prompts: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerInfo {
+    pub name: String,
+    pub version: String,
+}
+
 pub struct McpClient {
-    client: Client,
-    base_url: String,
+    process: Arc<Mutex<Child>>,
+    writer: Arc<Mutex<BufWriter<tokio::process::ChildStdin>>>,
+    reader: Arc<Mutex<BufReader<tokio::process::ChildStdout>>>,
+    next_id: Arc<Mutex<u64>>,
 }
 
 impl McpClient {
-    pub fn new(config: &Config) -> Result<Self> {
-        let client = Client::new();
-        let base_url = config.mcp_server_url.clone();
+    pub async fn new(config: &Config) -> Result<Self> {
+        debug!("Starting MCP server: {}", config.mcp_server_command);
 
-        Ok(Self { client, base_url })
+        let mut child = Command::new(&config.mcp_server_command)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .context("Failed to start MCP server process")?;
+
+        let stdin = child.stdin.take().context("Failed to get stdin from MCP server")?;
+        let stdout = child.stdout.take().context("Failed to get stdout from MCP server")?;
+
+        let writer = Arc::new(Mutex::new(BufWriter::new(stdin)));
+        let reader = Arc::new(Mutex::new(BufReader::new(stdout)));
+        let process = Arc::new(Mutex::new(child));
+        let next_id = Arc::new(Mutex::new(1));
+
+        let client = Self {
+            process,
+            writer,
+            reader,
+            next_id,
+        };
+
+        // Initialize the MCP connection
+        client.initialize().await?;
+
+        info!("MCP server started and initialized successfully");
+        Ok(client)
+    }
+
+    async fn initialize(&self) -> Result<()> {
+        debug!("Initializing MCP connection");
+
+        let init_request = InitializeRequest {
+            protocol_version: "2024-11-05".to_string(),
+            capabilities: ClientCapabilities {
+                roots: Some(RootsCapability { list_changed: true }),
+                sampling: Some(SamplingCapability {}),
+            },
+            client_info: ClientInfo {
+                name: "deepseek-mcp-tasks".to_string(),
+                version: "0.1.0".to_string(),
+            },
+        };
+
+        let response = self.send_request("initialize", Some(serde_json::to_value(init_request)?)).await?;
+        
+        match response.result {
+            Some(_) => {
+                debug!("MCP server initialized successfully");
+                // Send initialized notification
+                self.send_notification("notifications/initialized", None).await?;
+                Ok(())
+            }
+            None => {
+                if let Some(error) = response.error {
+                    anyhow::bail!("MCP initialization failed: {}", error.message);
+                } else {
+                    anyhow::bail!("MCP initialization failed: no result or error");
+                }
+            }
+        }
+    }
+
+    async fn get_next_id(&self) -> Result<String> {
+        let mut id = self.next_id.lock().await;
+        let current_id = *id;
+        *id += 1;
+        Ok(current_id.to_string())
+    }
+
+    async fn send_request(&self, method: &str, params: Option<serde_json::Value>) -> Result<JsonRpcResponse> {
+        let id = self.get_next_id().await?;
+        
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: id.clone(),
+            method: method.to_string(),
+            params,
+        };
+
+        let request_json = serde_json::to_string(&request)?;
+        debug!("Sending request: {}", request_json);
+
+        // Send request
+        {
+            let mut writer = self.writer.lock().await;
+            writer.write_all(request_json.as_bytes()).await?;
+            writer.write_all(b"\n").await?;
+            writer.flush().await?;
+        }
+
+        // Read response
+        let mut reader = self.reader.lock().await;
+        let mut response_line = String::new();
+        reader.read_line(&mut response_line).await?;
+
+        if response_line.trim().is_empty() {
+            anyhow::bail!("Empty response from MCP server");
+        }
+
+        debug!("Received response: {}", response_line.trim());
+
+        let response: JsonRpcResponse = serde_json::from_str(&response_line)
+            .context("Failed to parse JSON-RPC response")?;
+
+        if response.id != id {
+            anyhow::bail!("Response ID mismatch: expected {}, got {}", id, response.id);
+        }
+
+        Ok(response)
+    }
+
+    async fn send_notification(&self, method: &str, params: Option<serde_json::Value>) -> Result<()> {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params
+        });
+
+        let request_json = serde_json::to_string(&request)?;
+        debug!("Sending notification: {}", request_json);
+
+        let mut writer = self.writer.lock().await;
+        writer.write_all(request_json.as_bytes()).await?;
+        writer.write_all(b"\n").await?;
+        writer.flush().await?;
+
+        Ok(())
     }
 
     pub async fn get_all_tasks(&self) -> Result<Vec<Task>> {
-        let mut all_tasks = Vec::new();
-        let mut page = 1;
-        let page_size = 100;
+        debug!("Fetching all tasks from MCP server");
 
-        loop {
-            debug!("Fetching tasks page {}", page);
+        // For MCP, we'll use tools/call to interact with the todo system
+        let params = serde_json::json!({
+            "name": "get_all_tasks",
+            "arguments": {}
+        });
 
-            let query = TaskQuery {
-                page: Some(page),
-                page_size: Some(page_size),
-                status: None,
-                priority: None,
-                tag: None,
-            };
+        let response = self.send_request("tools/call", Some(params)).await?;
 
-            let response = self.get_tasks(query).await?;
-            
-            if response.tasks.is_empty() {
-                break;
+        match response.result {
+            Some(result) => {
+                // Try to parse the result as tasks
+                if let Some(tasks_array) = result.get("tasks") {
+                    let tasks: Vec<Task> = serde_json::from_value(tasks_array.clone())
+                        .context("Failed to deserialize tasks")?;
+                    info!("Retrieved {} total tasks from MCP server", tasks.len());
+                    Ok(tasks)
+                } else {
+                    // Fallback: try to parse the entire result as tasks array
+                    match serde_json::from_value::<Vec<Task>>(result) {
+                        Ok(tasks) => {
+                            info!("Retrieved {} total tasks from MCP server", tasks.len());
+                            Ok(tasks)
+                        }
+                        Err(_) => {
+                            warn!("Could not parse tasks from MCP response, returning empty list");
+                            Ok(vec![])
+                        }
+                    }
+                }
             }
-
-            let tasks_len = response.tasks.len();
-            all_tasks.extend(response.tasks);
-
-            // If we got fewer tasks than the page size, we've reached the end
-            if tasks_len < page_size as usize {
-                break;
+            None => {
+                if let Some(error) = response.error {
+                    anyhow::bail!("Failed to get tasks: {}", error.message);
+                } else {
+                    anyhow::bail!("No result from get_all_tasks");
+                }
             }
-
-            page += 1;
         }
-
-        info!("Retrieved {} total tasks from MCP server", all_tasks.len());
-        Ok(all_tasks)
     }
 
     pub async fn get_tasks(&self, query: TaskQuery) -> Result<TaskListResponse> {
-        let mut url = format!("{}/tasks", self.base_url);
-        let mut params = Vec::new();
+        debug!("Fetching tasks with query: {:?}", query);
 
-        if let Some(page) = query.page {
-            params.push(format!("page={}", page));
+        let params = serde_json::json!({
+            "name": "get_tasks",
+            "arguments": {
+                "page": query.page,
+                "page_size": query.page_size,
+                "status": query.status,
+                "priority": query.priority,
+                "tag": query.tag
+            }
+        });
+
+        let response = self.send_request("tools/call", Some(params)).await?;
+
+        match response.result {
+            Some(result) => {
+                // Try to parse as TaskListResponse
+                match serde_json::from_value::<TaskListResponse>(result.clone()) {
+                    Ok(task_response) => {
+                        debug!("Retrieved {} tasks from page {}", task_response.tasks.len(), task_response.page);
+                        Ok(task_response)
+                    }
+                    Err(_) => {
+                        // Fallback: create TaskListResponse from simple tasks array
+                        if let Ok(tasks) = serde_json::from_value::<Vec<Task>>(result) {
+                            let response = TaskListResponse {
+                                tasks: tasks.clone(),
+                                total: tasks.len() as u32,
+                                page: query.page.unwrap_or(1),
+                                page_size: query.page_size.unwrap_or(tasks.len() as u32),
+                            };
+                            debug!("Retrieved {} tasks from page {}", response.tasks.len(), response.page);
+                            Ok(response)
+                        } else {
+                            anyhow::bail!("Failed to parse tasks response");
+                        }
+                    }
+                }
+            }
+            None => {
+                if let Some(error) = response.error {
+                    anyhow::bail!("Failed to get tasks: {}", error.message);
+                } else {
+                    anyhow::bail!("No result from get_tasks");
+                }
+            }
         }
-
-        if let Some(page_size) = query.page_size {
-            params.push(format!("page_size={}", page_size));
-        }
-
-        if let Some(status) = query.status {
-            params.push(format!("status={}", status));
-        }
-
-        if let Some(priority) = query.priority {
-            params.push(format!("priority={}", priority));
-        }
-
-        if let Some(tag) = query.tag {
-            params.push(format!("tag={}", tag));
-        }
-
-        if !params.is_empty() {
-            url.push('?');
-            url.push_str(&params.join("&"));
-        }
-
-        debug!("Making request to: {}", url);
-
-        let response = self
-            .client
-            .get(&url)
-            .header("Content-Type", "application/json")
-            .send()
-            .await
-            .context("Failed to send request to MCP server")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "No error message".to_string());
-            anyhow::bail!(
-                "MCP server request failed with status {}: {}",
-                status,
-                error_text
-            );
-        }
-
-        let task_response: TaskListResponse = response
-            .json()
-            .await
-            .context("Failed to deserialize MCP server response")?;
-
-        debug!("Retrieved {} tasks from page {}", task_response.tasks.len(), task_response.page);
-
-        Ok(task_response)
     }
 
     pub async fn get_unfinished_tasks(&self) -> Result<Vec<Task>> {
@@ -204,23 +404,32 @@ impl McpClient {
     }
 
     pub async fn health_check(&self) -> Result<()> {
-        let url = format!("{}/health", self.base_url);
-        
-        debug!("Checking MCP server health at: {}", url);
+        debug!("Checking MCP server health");
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .context("Failed to connect to MCP server")?;
+        // Try to ping the server with a simple request
+        let params = serde_json::json!({
+            "name": "ping",
+            "arguments": {}
+        });
 
-        if response.status().is_success() {
-            info!("MCP server is healthy");
-            Ok(())
-        } else {
-            error!("MCP server health check failed with status: {}", response.status());
-            anyhow::bail!("MCP server is not responding properly")
+        match self.send_request("tools/call", Some(params)).await {
+            Ok(_) => {
+                info!("MCP server is healthy");
+                Ok(())
+            }
+            Err(e) => {
+                error!("MCP server health check failed: {}", e);
+                anyhow::bail!("MCP server is not responding properly: {}", e)
+            }
+        }
+    }
+}
+
+impl Drop for McpClient {
+    fn drop(&mut self) {
+        // Try to terminate the process gracefully
+        if let Ok(mut process) = self.process.try_lock() {
+            let _ = process.kill();
         }
     }
 }
