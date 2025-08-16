@@ -32,9 +32,8 @@ pub struct Task {
 #[allow(dead_code)]
 pub struct TaskListResponse {
     pub tasks: Vec<Task>,
-    pub total: u32,
-    pub page: u32,
-    pub page_size: u32,
+    pub count: u32,
+    pub filters_applied: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -101,6 +100,8 @@ impl McpClient {
         };
 
         let result = peer.call_tool(params).await?;
+
+        println!("result: {:?}", result);
         
         // Extract content from the result
         let content = result.content;
@@ -109,12 +110,17 @@ impl McpClient {
                 anyhow::bail!("No content returned from MCP server");
             }
 
-            // Try to parse the first content item as JSON
+            // Get the first content item
             let first_content = &content_vec[0];
-            let json_value = serde_json::to_value(&first_content.raw)?;
+            
+            // Parse the raw text content as JSON
+            let json_text = match &first_content.raw {
+                rmcp::model::RawContent::Text(text_content) => &text_content.text,
+                _ => anyhow::bail!("Expected text content from MCP server"),
+            };
 
-            // Try to parse as TaskListResponse first
-            match serde_json::from_value::<TaskListResponse>(json_value.clone()) {
+            // Parse the JSON text directly
+            match serde_json::from_str::<TaskListResponse>(json_text) {
                 Ok(task_response) => {
                     debug!(
                         "Retrieved {} tasks from MCP server",
@@ -122,94 +128,9 @@ impl McpClient {
                     );
                     Ok(task_response.tasks)
                 }
-                Err(_) => {
-                    // Fallback: try to parse as simple tasks array
-                    match serde_json::from_value::<Vec<Task>>(json_value) {
-                        Ok(tasks) => {
-                            debug!("Retrieved {} tasks from MCP server", tasks.len());
-                            Ok(tasks)
-                        }
-                        Err(e) => {
-                            error!("Failed to parse tasks response: {}", e);
-                            anyhow::bail!("Failed to parse tasks response from MCP server");
-                        }
-                    }
-                }
-            }
-        } else {
-            anyhow::bail!("No content returned from MCP server");
-        }
-    }
-
-    #[allow(dead_code)]
-    pub async fn get_tasks(&self, query: TaskQuery) -> Result<TaskListResponse> {
-        debug!("Fetching tasks with query: {:?}", query);
-
-        let peer = self.get_peer().await?;
-
-        // Convert query to arguments map
-        let mut arguments = serde_json::Map::new();
-        if let Some(page) = query.page {
-            arguments.insert("page".to_string(), serde_json::Value::Number(page.into()));
-        }
-        if let Some(page_size) = query.page_size {
-            arguments.insert("page_size".to_string(), serde_json::Value::Number(page_size.into()));
-        }
-        if let Some(status) = query.status {
-            arguments.insert("status".to_string(), serde_json::Value::String(status));
-        }
-        if let Some(priority) = query.priority {
-            arguments.insert("priority".to_string(), serde_json::Value::String(priority));
-        }
-        if let Some(tag) = query.tag {
-            arguments.insert("tag".to_string(), serde_json::Value::String(tag));
-        }
-
-        let params = CallToolRequestParam {
-            name: Cow::Borrowed("get_tasks"),
-            arguments: Some(arguments),
-        };
-
-        let result = peer.call_tool(params).await?;
-        
-        // Extract content from the result
-        let content = result.content;
-        if let Some(content_vec) = content {
-            if content_vec.is_empty() {
-                anyhow::bail!("No content returned from MCP server");
-            }
-
-            let first_content = &content_vec[0];
-            let json_value = serde_json::to_value(&first_content.raw)?;
-
-            // Try to parse as TaskListResponse
-            match serde_json::from_value::<TaskListResponse>(json_value.clone()) {
-                Ok(task_response) => {
-                    debug!(
-                        "Retrieved {} tasks from page {}",
-                        task_response.tasks.len(),
-                        task_response.page
-                    );
-                    Ok(task_response)
-                }
-                Err(_) => {
-                    // Fallback: create TaskListResponse from simple tasks array
-                    if let Ok(tasks) = serde_json::from_value::<Vec<Task>>(json_value) {
-                        let response = TaskListResponse {
-                            tasks: tasks.clone(),
-                            total: tasks.len() as u32,
-                            page: query.page.unwrap_or(1),
-                            page_size: query.page_size.unwrap_or(tasks.len() as u32),
-                        };
-                        debug!(
-                            "Retrieved {} tasks from page {}",
-                            response.tasks.len(),
-                            response.page
-                        );
-                        Ok(response)
-                    } else {
-                        anyhow::bail!("Failed to parse tasks response");
-                    }
+                Err(e) => {
+                    error!("Failed to parse tasks response: {}", e);
+                    anyhow::bail!("Failed to parse tasks response from MCP server");
                 }
             }
         } else {
