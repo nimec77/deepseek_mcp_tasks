@@ -164,11 +164,13 @@ Provide insights about priorities, dependencies, complexity, and actionable reco
                 role: "system".to_string(),
                 content: "You are an AI assistant that can analyze tasks and manage todo lists. You have access to various tools to help you provide detailed, accurate information. Use tools when they can help provide better answers.".to_string(),
                 tool_call_id: None,
+                tool_calls: None,
             },
             Message {
                 role: "user".to_string(),
                 content: user_message.to_string(),
                 tool_call_id: None,
+                tool_calls: None,
             },
         ];
 
@@ -188,18 +190,27 @@ Provide insights about priorities, dependencies, complexity, and actionable reco
             let response = self.deepseek_api.chat_with_tools(request).await?;
             
             if let Some(choice) = response.choices.first() {
-                // Add the assistant's response to the conversation
-                if let Some(content) = &choice.message.content
-                    && !content.is_empty() {
-                        messages.push(Message {
-                            role: "assistant".to_string(),
-                            content: content.clone(),
-                            tool_call_id: None,
-                        });
-                    }
-
                 // Check if there are tool calls to handle
                 if let Some(tool_calls) = &choice.message.tool_calls {
+                    // Convert response tool calls to message tool calls
+                    let message_tool_calls: Vec<crate::tooling::ToolCall> = tool_calls.iter().map(|tc| {
+                        crate::tooling::ToolCall {
+                            id: tc.id.clone(),
+                            call_type: Some("function".to_string()),
+                            function: crate::tooling::ToolCallFunction {
+                                name: tc.function.name.clone(),
+                                arguments: tc.function.arguments.clone(),
+                            },
+                        }
+                    }).collect();
+
+                    // Add the assistant's response with tool calls to the conversation
+                    messages.push(Message {
+                        role: "assistant".to_string(),
+                        content: choice.message.content.clone().unwrap_or_default(),
+                        tool_call_id: None,
+                        tool_calls: Some(message_tool_calls),
+                    });
                     info!("Processing {} tool calls", tool_calls.len());
 
                     // Process each tool call
@@ -214,14 +225,22 @@ Provide insights about priorities, dependencies, complexity, and actionable reco
                             role: "tool".to_string(),
                             content: serde_json::to_string(&tool_result)?,
                             tool_call_id: Some(tool_call.id.clone()),
+                            tool_calls: None,
                         });
                     }
 
                     // Continue the conversation with the tool results
                     continue;
                 } else {
-                    // No tool calls, return the final response
-                    return Ok(choice.message.content.clone().unwrap_or_default());
+                    // No tool calls, add the assistant's final response and return it
+                    let content = choice.message.content.clone().unwrap_or_default();
+                    messages.push(Message {
+                        role: "assistant".to_string(),
+                        content: content.clone(),
+                        tool_call_id: None,
+                        tool_calls: None,
+                    });
+                    return Ok(content);
                 }
             } else {
                 anyhow::bail!("No response choices returned from DeepSeek API");
