@@ -1,28 +1,31 @@
-use tabled::{Table, Tabled, settings::{Style, Alignment, Modify, object::Column}};
+use crate::mcp_client::Task;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use crate::mcp_client::Task;
+use tabled::{
+    Table, Tabled,
+    settings::{Alignment, Modify, Style, object::Column},
+};
 
 #[derive(Debug, Tabled)]
 pub struct TaskTableRow {
     #[tabled(rename = "ID")]
     pub id: String,
-    
+
     #[tabled(rename = "Title")]
     pub title: String,
-    
+
     #[tabled(rename = "Status")]
     pub status: String,
-    
+
     #[tabled(rename = "Priority")]
     pub priority: String,
-    
+
     #[tabled(rename = "Due Date")]
     pub due_date: String,
-    
+
     #[tabled(rename = "Created")]
     pub created_at: String,
-    
+
     #[tabled(rename = "Tags")]
     pub tags: String,
 }
@@ -97,7 +100,13 @@ impl TaskTableFormatter {
         let mut no_priority_count = 0;
 
         for task in tasks {
-            match task.priority.as_deref().unwrap_or("").to_lowercase().as_str() {
+            match task
+                .priority
+                .as_deref()
+                .unwrap_or("")
+                .to_lowercase()
+                .as_str()
+            {
                 "high" | "urgent" | "critical" => high_count += 1,
                 "medium" | "normal" => medium_count += 1,
                 "low" => low_count += 1,
@@ -106,7 +115,7 @@ impl TaskTableFormatter {
         }
 
         let mut output = format!("\n⚡ Priority Breakdown\n{}\n", "=".repeat(30));
-        
+
         if high_count > 0 {
             output.push_str(&format!("🔴 High Priority: {}\n", high_count));
         }
@@ -128,7 +137,8 @@ impl TaskTableFormatter {
         let overdue_tasks: Vec<&Task> = tasks
             .iter()
             .filter(|task| {
-                task.due_date.as_ref()
+                task.due_date
+                    .as_ref()
                     .and_then(|due_date_str| DateTime::parse_from_rfc3339(due_date_str).ok())
                     .map(|due_date| due_date.with_timezone(&Utc) < now)
                     .unwrap_or(false)
@@ -145,7 +155,7 @@ impl TaskTableFormatter {
             .collect();
 
         let row_count = overdue_rows.len();
-        
+
         let mut table = Table::new(overdue_rows);
         table
             .with(Style::modern())
@@ -154,7 +164,7 @@ impl TaskTableFormatter {
             .with(Modify::new(Column::from(3)).with(Alignment::center()));
 
         let table_output = table.to_string();
-        
+
         let output = format!(
             "\n🚨 Overdue Tasks ({} total)\n{}\n{}",
             row_count,

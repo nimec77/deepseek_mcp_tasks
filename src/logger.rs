@@ -1,11 +1,11 @@
-use tracing::{info, Level};
+use anyhow::Result;
+use tracing::{Level, info};
 use tracing_subscriber::{
+    EnvFilter, Layer,
     fmt::{self, format::FmtSpan},
     layer::SubscriberExt,
     util::SubscriberInitExt,
-    EnvFilter, Layer,
 };
-use anyhow::Result;
 
 pub fn init_logger() -> Result<()> {
     // Create a filter layer to control logging levels

@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::env;
-use anyhow::{Context, Result};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -39,18 +39,17 @@ impl Config {
         let deepseek_api_url = env::var("DEEPSEEK_API_URL")
             .unwrap_or_else(|_| "https://api.deepseek.com/v1/chat/completions".to_string());
 
-        let deepseek_model = env::var("DEEPSEEK_MODEL")
-            .unwrap_or_else(|_| "deepseek-chat".to_string());
+        let deepseek_model =
+            env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
 
-        let mcp_server_command = env::var("MCP_SERVER_COMMAND")
-            .unwrap_or_else(|_| "./mcp_todo_task".to_string());
+        let mcp_server_command =
+            env::var("MCP_SERVER_COMMAND").unwrap_or_else(|_| "./mcp_todo_task".to_string());
 
         let mcp_server_args = env::var("MCP_SERVER_ARGS")
             .unwrap_or_else(|_| "".to_string())
             .split_whitespace()
             .map(|s| s.to_string())
             .collect();
-        
 
         let request_timeout = env::var("REQUEST_TIMEOUT")
             .unwrap_or_else(|_| "30".to_string())

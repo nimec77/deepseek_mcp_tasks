@@ -1,5 +1,5 @@
-use clap::{Parser, Subcommand};
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 use tracing::{error, info};
 
 mod config;
@@ -13,7 +13,9 @@ use table_formatter::TaskTableFormatter;
 
 #[derive(Parser)]
 #[command(name = "deepseek-mcp-tasks")]
-#[command(about = "A Rust application that integrates with MCP todo server and uses DeepSeek models")]
+#[command(
+    about = "A Rust application that integrates with MCP todo server and uses DeepSeek models"
+)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -28,7 +30,6 @@ struct Cli {
 enum Commands {
     /// List all unfinished tasks
     List {
-
         /// Show detailed breakdown
         #[arg(long)]
         detailed: bool,
@@ -66,8 +67,12 @@ async fn main() -> Result<()> {
             eprintln!("\nPlease ensure you have set the following environment variables:");
             eprintln!("- DEEPSEEK_API_KEY: Your DeepSeek API key");
             eprintln!("- MCP_SERVER_COMMAND (optional): MCP server command (default: node)");
-            eprintln!("- MCP_SERVER_ARGS (optional): MCP server arguments (default: todo-server.js)");
-            eprintln!("\nYou can create a .env file with these variables or export them in your shell.");
+            eprintln!(
+                "- MCP_SERVER_ARGS (optional): MCP server arguments (default: todo-server.js)"
+            );
+            eprintln!(
+                "\nYou can create a .env file with these variables or export them in your shell."
+            );
             std::process::exit(1);
         }
     };
@@ -75,7 +80,10 @@ async fn main() -> Result<()> {
     info!("DeepSeek MCP Tasks application started");
 
     match cli.command {
-        Commands::List { detailed, overdue_only } => {
+        Commands::List {
+            detailed,
+            overdue_only,
+        } => {
             handle_list_command(config, detailed, overdue_only).await?;
         }
         Commands::Health => {
@@ -89,11 +97,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn handle_list_command(
-    config: Config,
-    detailed: bool,
-    overdue_only: bool,
-) -> Result<()> {
+async fn handle_list_command(config: Config, detailed: bool, overdue_only: bool) -> Result<()> {
     info!("Fetching tasks from MCP server");
 
     // Create MCP client
@@ -116,7 +120,8 @@ async fn handle_list_command(
     if detailed {
         // Show additional details
         let all_tasks = mcp_client.get_all_tasks().await?;
-        let summary = TaskTableFormatter::format_summary_statistics(&unfinished_tasks, all_tasks.len());
+        let summary =
+            TaskTableFormatter::format_summary_statistics(&unfinished_tasks, all_tasks.len());
         println!("{}", summary);
 
         let priority_breakdown = TaskTableFormatter::format_priority_breakdown(&unfinished_tasks);
@@ -138,7 +143,10 @@ async fn handle_health_command(config: Config) -> Result<()> {
         Err(e) => {
             error!("MCP server health check failed: {}", e);
             eprintln!("❌ MCP server health check failed: {}", e);
-            eprintln!("Please ensure the MCP server command is correct: {}", config.mcp_server_command);
+            eprintln!(
+                "Please ensure the MCP server command is correct: {}",
+                config.mcp_server_command
+            );
             std::process::exit(1);
         }
     }

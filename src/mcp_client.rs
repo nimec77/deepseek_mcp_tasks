@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
 use anyhow::{Context, Result};
-use tracing::{debug, error, info, warn};
-use tokio::process::{Child, Command};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
-use tokio::sync::Mutex;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
+use tokio::process::{Child, Command};
+use tokio::sync::Mutex;
+use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
 
@@ -23,6 +23,7 @@ pub struct Task {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct TaskListResponse {
     pub tasks: Vec<Task>,
     pub total: u32,
@@ -31,6 +32,7 @@ pub struct TaskListResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct TaskQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -94,6 +96,7 @@ pub struct ClientInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct InitializeResponse {
     pub protocol_version: String,
     pub capabilities: ServerCapabilities,
@@ -101,6 +104,7 @@ pub struct InitializeResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ServerCapabilities {
     pub tools: Option<serde_json::Value>,
     pub resources: Option<serde_json::Value>,
@@ -108,6 +112,7 @@ pub struct ServerCapabilities {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ServerInfo {
     pub name: String,
     pub version: String,
@@ -123,11 +128,14 @@ pub struct McpClient {
 
 impl McpClient {
     pub async fn new(config: &Config) -> Result<Self> {
-        debug!("Starting MCP server: {} {:?}", config.mcp_server_command, config.mcp_server_args);
+        debug!(
+            "Starting MCP server: {} {:?}",
+            config.mcp_server_command, config.mcp_server_args
+        );
 
         let mut command = Command::new(&config.mcp_server_command);
         command.args(&config.mcp_server_args);
-        
+
         let mut child = command
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -135,9 +143,18 @@ impl McpClient {
             .spawn()
             .context("Failed to start MCP server process")?;
 
-        let stdin = child.stdin.take().context("Failed to get stdin from MCP server")?;
-        let stdout = child.stdout.take().context("Failed to get stdout from MCP server")?;
-        let stderr = child.stderr.take().context("Failed to get stderr from MCP server")?;
+        let stdin = child
+            .stdin
+            .take()
+            .context("Failed to get stdin from MCP server")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("Failed to get stdout from MCP server")?;
+        let stderr = child
+            .stderr
+            .take()
+            .context("Failed to get stderr from MCP server")?;
 
         let writer = Arc::new(Mutex::new(BufWriter::new(stdin)));
         let reader = Arc::new(Mutex::new(BufReader::new(stdout)));
@@ -175,8 +192,10 @@ impl McpClient {
             },
         };
 
-        let response = self.send_request("initialize", Some(serde_json::to_value(init_request)?)).await?;
-        
+        let response = self
+            .send_request("initialize", Some(serde_json::to_value(init_request)?))
+            .await?;
+
         match response.result {
             Some(_) => {
                 debug!("MCP server initialized successfully");
@@ -201,9 +220,13 @@ impl McpClient {
         Ok(current_id.to_string())
     }
 
-    async fn send_request(&self, method: &str, params: Option<serde_json::Value>) -> Result<JsonRpcResponse> {
+    async fn send_request(
+        &self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<JsonRpcResponse> {
         let id = self.get_next_id().await?;
-        
+
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: id.clone(),
@@ -232,11 +255,18 @@ impl McpClient {
             // Try to read stderr to see if there's an error message
             let mut stderr_reader = self.stderr_reader.lock().await;
             let mut stderr_line = String::new();
-            match tokio::time::timeout(std::time::Duration::from_millis(100), 
-                stderr_reader.read_line(&mut stderr_line)).await {
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                stderr_reader.read_line(&mut stderr_line),
+            )
+            .await
+            {
                 Ok(Ok(_)) if !stderr_line.trim().is_empty() => {
                     error!("MCP server stderr: {}", stderr_line.trim());
-                    anyhow::bail!("Empty response from MCP server. Server error: {}", stderr_line.trim());
+                    anyhow::bail!(
+                        "Empty response from MCP server. Server error: {}",
+                        stderr_line.trim()
+                    );
                 }
                 _ => {
                     anyhow::bail!("Empty response from MCP server");
@@ -246,8 +276,8 @@ impl McpClient {
 
         debug!("Received response: {}", response_line.trim());
 
-        let response: JsonRpcResponse = serde_json::from_str(&response_line)
-            .context("Failed to parse JSON-RPC response")?;
+        let response: JsonRpcResponse =
+            serde_json::from_str(&response_line).context("Failed to parse JSON-RPC response")?;
 
         if response.id != id {
             anyhow::bail!("Response ID mismatch: expected {}, got {}", id, response.id);
@@ -256,7 +286,11 @@ impl McpClient {
         Ok(response)
     }
 
-    async fn send_notification(&self, method: &str, params: Option<serde_json::Value>) -> Result<()> {
+    async fn send_notification(
+        &self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<()> {
         let mut request = serde_json::json!({
             "jsonrpc": "2.0",
             "method": method
@@ -308,11 +342,12 @@ impl McpClient {
                 tags: None,
             },
         ];
-        
+
         info!("Retrieved {} dummy tasks for testing", dummy_tasks.len());
         Ok(dummy_tasks)
     }
 
+    #[allow(dead_code)]
     pub async fn get_tasks(&self, query: TaskQuery) -> Result<TaskListResponse> {
         debug!("Fetching tasks with query: {:?}", query);
 
@@ -334,7 +369,11 @@ impl McpClient {
                 // Try to parse as TaskListResponse
                 match serde_json::from_value::<TaskListResponse>(result.clone()) {
                     Ok(task_response) => {
-                        debug!("Retrieved {} tasks from page {}", task_response.tasks.len(), task_response.page);
+                        debug!(
+                            "Retrieved {} tasks from page {}",
+                            task_response.tasks.len(),
+                            task_response.page
+                        );
                         Ok(task_response)
                     }
                     Err(_) => {
@@ -346,7 +385,11 @@ impl McpClient {
                                 page: query.page.unwrap_or(1),
                                 page_size: query.page_size.unwrap_or(tasks.len() as u32),
                             };
-                            debug!("Retrieved {} tasks from page {}", response.tasks.len(), response.page);
+                            debug!(
+                                "Retrieved {} tasks from page {}",
+                                response.tasks.len(),
+                                response.page
+                            );
                             Ok(response)
                         } else {
                             anyhow::bail!("Failed to parse tasks response");
@@ -381,7 +424,7 @@ impl McpClient {
 
     fn is_task_unfinished(&self, task: &Task) -> bool {
         let status = task.status.to_lowercase();
-        
+
         // Consider task unfinished if:
         // - Status indicates it's not complete
         // - Has no completion date but has other indicators
