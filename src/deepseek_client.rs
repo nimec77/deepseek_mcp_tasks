@@ -1,13 +1,13 @@
 use anyhow::Result;
-use genai::chat::{ChatMessage, ChatRequest};
 use genai::Client;
+use genai::chat::{ChatMessage, ChatRequest};
 use serde_json::Value;
 use std::env;
 use tracing::{debug, info, warn};
 
 use crate::tooling::{
-    DeepSeekApiClient, ChatRequest as ToolChatRequest, Message, ToolObject,
-    execute_mcp_tool_call, create_mcp_tool_definitions, create_task_tools, execute_task_tool
+    ChatRequest as ToolChatRequest, DeepSeekApiClient, Message, ToolObject,
+    create_mcp_tool_definitions, create_task_tools, execute_mcp_tool_call, execute_task_tool,
 };
 
 const DEEPSEEK_MODEL: &str = "deepseek-chat";
@@ -45,15 +45,12 @@ impl DeepSeekClient {
 
         let chat_req = ChatRequest::new(vec![
             ChatMessage::system(
-                "You are a task analysis expert. Analyze the provided pending tasks and provide insights about priorities, dependencies, complexity, and actionable recommendations."
+                "You are a task analysis expert. Analyze the provided pending tasks and provide insights about priorities, dependencies, complexity, and actionable recommendations.",
             ),
             ChatMessage::user(analysis_prompt),
         ]);
 
-        let chat_res = self
-            .client
-            .exec_chat(&self.model, chat_req, None)
-            .await?;
+        let chat_res = self.client.exec_chat(&self.model, chat_req, None).await?;
 
         let response_text = chat_res
             .content_text_as_str()
@@ -67,18 +64,14 @@ impl DeepSeekClient {
         let mut formatted = String::new();
 
         for (idx, task) in tasks.iter().enumerate() {
-            formatted.push_str(&format!(
-                "Task {}: {}\n",
-                idx + 1,
-                task.title
-            ));
+            formatted.push_str(&format!("Task {}: {}\n", idx + 1, task.title));
 
             if let Some(description) = &task.description {
                 formatted.push_str(&format!("  Description: {}\n", description));
             }
 
             formatted.push_str(&format!("  Status: {}\n", task.status));
-            
+
             if let Some(priority) = &task.priority {
                 formatted.push_str(&format!("  Priority: {}\n", priority));
             }
@@ -129,7 +122,7 @@ Please provide a structured analysis that will help prioritize and organize the 
         // Get available MCP tools
         let tools = create_mcp_tool_definitions(mcp_client).await?;
         let task_tools = create_task_tools();
-        
+
         let mut all_tools = tools;
         all_tools.extend(task_tools);
 
@@ -147,7 +140,8 @@ Provide insights about priorities, dependencies, complexity, and actionable reco
         );
 
         // Start the conversation with tools available
-        self.chat_with_tools(&analysis_prompt, &all_tools, mcp_client).await
+        self.chat_with_tools(&analysis_prompt, &all_tools, mcp_client)
+            .await
     }
 
     /// Chat with DeepSeek using available tools
@@ -188,21 +182,22 @@ Provide insights about priorities, dependencies, complexity, and actionable reco
             };
 
             let response = self.deepseek_api.chat_with_tools(request).await?;
-            
+
             if let Some(choice) = response.choices.first() {
                 // Check if there are tool calls to handle
                 if let Some(tool_calls) = &choice.message.tool_calls {
                     // Convert response tool calls to message tool calls
-                    let message_tool_calls: Vec<crate::tooling::ToolCall> = tool_calls.iter().map(|tc| {
-                        crate::tooling::ToolCall {
+                    let message_tool_calls: Vec<crate::tooling::ToolCall> = tool_calls
+                        .iter()
+                        .map(|tc| crate::tooling::ToolCall {
                             id: tc.id.clone(),
                             call_type: Some("function".to_string()),
                             function: crate::tooling::ToolCallFunction {
                                 name: tc.function.name.clone(),
                                 arguments: tc.function.arguments.clone(),
                             },
-                        }
-                    }).collect();
+                        })
+                        .collect();
 
                     // Add the assistant's response with tool calls to the conversation
                     messages.push(Message {

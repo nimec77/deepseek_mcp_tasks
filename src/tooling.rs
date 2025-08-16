@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use tracing::{debug, info};
 
@@ -93,10 +93,13 @@ impl DeepSeekApiClient {
     }
 
     pub async fn chat_with_tools(&self, request: ChatRequest) -> Result<ChatResponse> {
-        debug!("Sending chat request to DeepSeek API with {} tools", 
-               request.tools.as_ref().map_or(0, |t| t.len()));
+        debug!(
+            "Sending chat request to DeepSeek API with {} tools",
+            request.tools.as_ref().map_or(0, |t| t.len())
+        );
 
-        let response = self.client
+        let response = self
+            .client
             .post(&self.base_url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -116,7 +119,10 @@ impl DeepSeekApiClient {
             .await
             .context("Failed to parse DeepSeek API response")?;
 
-        debug!("Received response with {} choices", chat_response.choices.len());
+        debug!(
+            "Received response with {} choices",
+            chat_response.choices.len()
+        );
         Ok(chat_response)
     }
 }
@@ -156,7 +162,9 @@ pub fn mcp_invoke_tool() -> ToolObject {
 pub async fn create_mcp_tool_definitions(mcp_client: &McpClient) -> Result<Vec<ToolObject>> {
     info!("Creating DeepSeek tool definitions from MCP server tools");
 
-    let mcp_tools = mcp_client.get_tools_list().await
+    let mcp_tools = mcp_client
+        .get_tools_list()
+        .await
         .context("Failed to get MCP tools list")?;
 
     let mut deepseek_tools = Vec::new();
@@ -167,14 +175,15 @@ pub async fn create_mcp_tool_definitions(mcp_client: &McpClient) -> Result<Vec<T
     // Create specific tool definitions for each MCP tool
     for mcp_tool in mcp_tools {
         let tool_name = format!("mcp_{}", mcp_tool.name);
-        let description = mcp_tool.description
+        let description = mcp_tool
+            .description
             .as_ref()
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("Invoke {} tool from MCP server", mcp_tool.name));
 
         // Convert MCP tool schema to DeepSeek tool parameters
         let mut parameters = mcp_tool.schema_as_json_value();
-        
+
         // Ensure it has the right structure for DeepSeek API
         if !parameters.is_object() {
             parameters = json!({
@@ -194,10 +203,16 @@ pub async fn create_mcp_tool_definitions(mcp_client: &McpClient) -> Result<Vec<T
         };
 
         deepseek_tools.push(deepseek_tool);
-        debug!("Created DeepSeek tool definition for MCP tool: {}", mcp_tool.name);
+        debug!(
+            "Created DeepSeek tool definition for MCP tool: {}",
+            mcp_tool.name
+        );
     }
 
-    info!("Created {} DeepSeek tool definitions from MCP server", deepseek_tools.len());
+    info!(
+        "Created {} DeepSeek tool definitions from MCP server",
+        deepseek_tools.len()
+    );
     Ok(deepseek_tools)
 }
 
@@ -207,12 +222,13 @@ pub async fn execute_mcp_tool_call(
     tool_name: &str,
     arguments: &Value,
 ) -> Result<Value> {
-    debug!("Executing MCP tool call: {} with args: {}", tool_name, arguments);
+    debug!(
+        "Executing MCP tool call: {} with args: {}",
+        tool_name, arguments
+    );
 
     match tool_name {
-        "mcp_invoke" => {
-            execute_generic_mcp_invoke(mcp_client, arguments).await
-        }
+        "mcp_invoke" => execute_generic_mcp_invoke(mcp_client, arguments).await,
         // Handle specific task tools
         "list_tasks" | "get_task" | "task_stats" => {
             execute_task_tool(mcp_client, tool_name, arguments).await
@@ -229,23 +245,23 @@ pub async fn execute_mcp_tool_call(
 }
 
 /// Executes the generic mcp_invoke tool
-async fn execute_generic_mcp_invoke(
-    mcp_client: &McpClient,
-    arguments: &Value,
-) -> Result<Value> {
-    let server = arguments.get("server")
+async fn execute_generic_mcp_invoke(mcp_client: &McpClient, arguments: &Value) -> Result<Value> {
+    let server = arguments
+        .get("server")
         .and_then(|v| v.as_str())
         .context("Missing 'server' argument")?;
 
-    let tool = arguments.get("tool")
+    let tool = arguments
+        .get("tool")
         .and_then(|v| v.as_str())
         .context("Missing 'tool' argument")?;
 
-    let tool_args = arguments.get("arguments")
-        .cloned()
-        .unwrap_or(json!({}));
+    let tool_args = arguments.get("arguments").cloned().unwrap_or(json!({}));
 
-    info!("Invoking MCP tool '{}' on server '{}' with args: {}", tool, server, tool_args);
+    info!(
+        "Invoking MCP tool '{}' on server '{}' with args: {}",
+        tool, server, tool_args
+    );
 
     // For now, we assume single MCP server. In the future, this could route to different servers
     execute_specific_mcp_tool(mcp_client, tool, &tool_args).await
@@ -260,7 +276,10 @@ async fn execute_specific_mcp_tool(
     use rmcp::model::CallToolRequestParam;
     use std::borrow::Cow;
 
-    debug!("Executing specific MCP tool: {} with arguments: {}", tool_name, arguments);
+    debug!(
+        "Executing specific MCP tool: {} with arguments: {}",
+        tool_name, arguments
+    );
 
     // Get the peer for making requests
     let peer = {
@@ -284,57 +303,63 @@ async fn execute_specific_mcp_tool(
         arguments: args,
     };
 
-    let result = peer.call_tool(params).await
+    let result = peer
+        .call_tool(params)
+        .await
         .context(format!("Failed to call MCP tool '{}'", tool_name))?;
 
     // Convert the result to a JSON value for DeepSeek
     let mut response = HashMap::new();
-    
+
     if let Some(content_vec) = result.content
-        && !content_vec.is_empty() {
-            let mut content_responses = Vec::new();
-            
-            for content in content_vec {
-                match &content.raw {
-                    rmcp::model::RawContent::Text(text_content) => {
-                        // Try to parse as JSON, fall back to plain text
-                        match serde_json::from_str::<Value>(&text_content.text) {
-                            Ok(json_value) => content_responses.push(json_value),
-                            Err(_) => content_responses.push(json!({
-                                "text": text_content.text,
-                                "type": "text"
-                            })),
-                        }
-                    }
-                    rmcp::model::RawContent::Image(image_content) => {
-                        content_responses.push(json!({
-                            "data": image_content.data,
-                            "mime_type": image_content.mime_type,
-                            "type": "image"
-                        }));
-                    }
-                    rmcp::model::RawContent::Resource(resource_content) => {
-                        content_responses.push(json!({
-                            "resource": resource_content.resource,
-                            "type": "resource"
-                        }));
-                    }
-                    rmcp::model::RawContent::Audio(audio_content) => {
-                        content_responses.push(json!({
-                            "data": audio_content.data,
-                            "mime_type": audio_content.mime_type,
-                            "type": "audio"
-                        }));
+        && !content_vec.is_empty()
+    {
+        let mut content_responses = Vec::new();
+
+        for content in content_vec {
+            match &content.raw {
+                rmcp::model::RawContent::Text(text_content) => {
+                    // Try to parse as JSON, fall back to plain text
+                    match serde_json::from_str::<Value>(&text_content.text) {
+                        Ok(json_value) => content_responses.push(json_value),
+                        Err(_) => content_responses.push(json!({
+                            "text": text_content.text,
+                            "type": "text"
+                        })),
                     }
                 }
-            }
-            
-            if content_responses.len() == 1 {
-                response.insert("content".to_string(), content_responses.into_iter().next().unwrap());
-            } else {
-                response.insert("content".to_string(), json!(content_responses));
+                rmcp::model::RawContent::Image(image_content) => {
+                    content_responses.push(json!({
+                        "data": image_content.data,
+                        "mime_type": image_content.mime_type,
+                        "type": "image"
+                    }));
+                }
+                rmcp::model::RawContent::Resource(resource_content) => {
+                    content_responses.push(json!({
+                        "resource": resource_content.resource,
+                        "type": "resource"
+                    }));
+                }
+                rmcp::model::RawContent::Audio(audio_content) => {
+                    content_responses.push(json!({
+                        "data": audio_content.data,
+                        "mime_type": audio_content.mime_type,
+                        "type": "audio"
+                    }));
+                }
             }
         }
+
+        if content_responses.len() == 1 {
+            response.insert(
+                "content".to_string(),
+                content_responses.into_iter().next().unwrap(),
+            );
+        } else {
+            response.insert("content".to_string(), json!(content_responses));
+        }
+    }
 
     // Add metadata about the tool execution
     response.insert("tool_name".to_string(), json!(tool_name));
@@ -342,11 +367,17 @@ async fn execute_specific_mcp_tool(
 
     if result.is_error.unwrap_or(false) {
         response.insert("success".to_string(), json!(false));
-        response.insert("error".to_string(), json!("Tool execution reported an error"));
+        response.insert(
+            "error".to_string(),
+            json!("Tool execution reported an error"),
+        );
     }
 
     let response_json = json!(response);
-    debug!("MCP tool '{}' execution result: {}", tool_name, response_json);
+    debug!(
+        "MCP tool '{}' execution result: {}",
+        tool_name, response_json
+    );
 
     Ok(response_json)
 }
@@ -359,7 +390,9 @@ pub fn create_task_tools() -> Vec<ToolObject> {
             tool_type: "function".to_string(),
             function: Function {
                 name: "list_tasks".to_string(),
-                description: "List all tasks, optionally filtered by status, priority, assignee, or tag".to_string(),
+                description:
+                    "List all tasks, optionally filtered by status, priority, assignee, or tag"
+                        .to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
@@ -383,7 +416,6 @@ pub fn create_task_tools() -> Vec<ToolObject> {
                 }),
             },
         },
-        
         // get_task tool
         ToolObject {
             tool_type: "function".to_string(),
@@ -402,19 +434,19 @@ pub fn create_task_tools() -> Vec<ToolObject> {
                 }),
             },
         },
-        
         // task_stats tool
         ToolObject {
             tool_type: "function".to_string(),
             function: Function {
                 name: "task_stats".to_string(),
-                description: "Get statistics about tasks (counts by status, priority, etc.)".to_string(),
+                description: "Get statistics about tasks (counts by status, priority, etc.)"
+                    .to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {}
                 }),
             },
-        },        
+        },
     ]
 }
 
@@ -424,13 +456,16 @@ pub async fn execute_task_tool(
     tool_name: &str,
     arguments: &Value,
 ) -> Result<Value> {
-    debug!("Executing task tool: {} with arguments: {}", tool_name, arguments);
+    debug!(
+        "Executing task tool: {} with arguments: {}",
+        tool_name, arguments
+    );
 
     match tool_name {
         "list_tasks" => {
             // Extract filter parameters and build arguments for the MCP tool
             let mut mcp_args = serde_json::Map::new();
-            
+
             if let Some(assignee) = arguments.get("assignee").and_then(|v| v.as_str()) {
                 mcp_args.insert("assignee".to_string(), json!(assignee));
             }
@@ -443,27 +478,28 @@ pub async fn execute_task_tool(
             if let Some(tag) = arguments.get("tag").and_then(|v| v.as_str()) {
                 mcp_args.insert("tag".to_string(), json!(tag));
             }
-            
+
             execute_specific_mcp_tool(mcp_client, "list_tasks", &json!(mcp_args)).await
         }
-        
+
         "get_task" => {
-            let id = arguments.get("id")
+            let id = arguments
+                .get("id")
                 .and_then(|v| v.as_str())
                 .context("Missing 'id' argument for get_task")?;
-            
+
             let mcp_args = json!({
                 "id": id
             });
-            
+
             execute_specific_mcp_tool(mcp_client, "get_task", &mcp_args).await
         }
-        
+
         "task_stats" => {
             // task_stats takes no parameters
             execute_specific_mcp_tool(mcp_client, "task_stats", &json!({})).await
         }
-                
+
         _ => {
             anyhow::bail!("Unknown task tool: {}", tool_name);
         }

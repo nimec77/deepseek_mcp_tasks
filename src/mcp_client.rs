@@ -1,8 +1,6 @@
 use anyhow::{Context, Result};
 use rmcp::{
-    model::{
-        CallToolRequestParam, Tool,
-    },
+    model::{CallToolRequestParam, Tool},
     service::{Peer, RoleClient, ServiceExt},
     transport::TokioChildProcess,
 };
@@ -46,8 +44,6 @@ pub struct TaskQuery {
     pub tag: Option<String>,
 }
 
-
-
 /// Main MCP client that wraps the rmcp client and provides task-specific functionality
 pub struct McpClient {
     pub client: Arc<Mutex<rmcp::service::RunningService<RoleClient, ()>>>,
@@ -65,14 +61,11 @@ impl McpClient {
         command.args(&config.mcp_server_args);
 
         // Create the transport using TokioChildProcess
-        let transport = TokioChildProcess::new(command)
-            .context("Failed to create MCP server transport")?;
+        let transport =
+            TokioChildProcess::new(command).context("Failed to create MCP server transport")?;
 
         // Start the client service with unit type handler
-        let client = ()
-            .serve(transport)
-            .await
-            .context("Failed to start MCP client service")?;
+        let client = ().serve(transport).await.context("Failed to start MCP client service")?;
 
         info!("MCP server started and initialized successfully");
 
@@ -110,7 +103,7 @@ impl McpClient {
 
             // Get the first content item
             let first_content = &content_vec[0];
-            
+
             // Parse the raw text content as JSON
             let json_text = match &first_content.raw {
                 rmcp::model::RawContent::Text(text_content) => &text_content.text,
@@ -163,7 +156,11 @@ impl McpClient {
             .filter(|task| task.status.to_lowercase() == status.to_lowercase())
             .collect::<Vec<_>>();
 
-        info!("Found {} tasks with status '{}'", filtered_tasks.len(), status);
+        info!(
+            "Found {} tasks with status '{}'",
+            filtered_tasks.len(),
+            status
+        );
         Ok(filtered_tasks)
     }
 
@@ -191,10 +188,7 @@ impl McpClient {
         // Use the list_tools method from rmcp with default parameters
         let result = peer.list_tools(Default::default()).await?;
 
-        debug!(
-            "Retrieved {} tools from MCP server",
-            result.tools.len()
-        );
+        debug!("Retrieved {} tools from MCP server", result.tools.len());
 
         Ok(result.tools)
     }

@@ -16,9 +16,7 @@ use table_formatter::TaskTableFormatter;
 
 #[derive(Parser)]
 #[command(name = "mcp-tasks")]
-#[command(
-    about = "A Rust application that integrates with MCP todo server"
-)]
+#[command(about = "A Rust application that integrates with MCP todo server")]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -69,10 +67,10 @@ async fn main() -> Result<()> {
             error!("Failed to load configuration: {}", e);
             eprintln!("Error: {}", e);
             eprintln!("\nPlease ensure you have set the following environment variables:");
-            eprintln!("- MCP_SERVER_COMMAND (optional): MCP server command (default: ./mcp_todo_task)");
             eprintln!(
-                "- MCP_SERVER_ARGS (optional): MCP server arguments (default: empty)"
+                "- MCP_SERVER_COMMAND (optional): MCP server command (default: ./mcp_todo_task)"
             );
+            eprintln!("- MCP_SERVER_ARGS (optional): MCP server arguments (default: empty)");
             eprintln!(
                 "\nYou can create a .env file with these variables or export them in your shell."
             );
@@ -180,7 +178,10 @@ async fn handle_analyze_with_tools_command(config: Config) -> Result<()> {
         return Ok(());
     }
 
-    info!("Found {} pending tasks for tool-enabled analysis", pending_tasks.len());
+    info!(
+        "Found {} pending tasks for tool-enabled analysis",
+        pending_tasks.len()
+    );
 
     // Create DeepSeek client
     let deepseek_client = DeepSeekClient::new().map_err(|e| {
@@ -208,7 +209,10 @@ async fn handle_analyze_with_tools_command(config: Config) -> Result<()> {
     println!("📡 The AI can now query the MCP server directly for real-time task data!\n");
 
     // Analyze the tasks using DeepSeek with MCP tools
-    match deepseek_client.analyze_tasks_with_tools(pending_tasks, &mcp_client).await {
+    match deepseek_client
+        .analyze_tasks_with_tools(pending_tasks, &mcp_client)
+        .await
+    {
         Ok(analysis) => {
             println!("🔧 DeepSeek Analysis with MCP Tools:\n");
             println!("{}", analysis);
@@ -266,9 +270,13 @@ async fn handle_tools_list_command(config: Config) -> Result<()> {
                     let schema_value = tool.schema_as_json_value();
                     if let Some(properties) = schema_value.get("properties")
                         && let Some(props_obj) = properties.as_object()
-                            && !props_obj.is_empty() {
-                                println!("   Parameters: {}", props_obj.keys().cloned().collect::<Vec<_>>().join(", "));
-                            }
+                        && !props_obj.is_empty()
+                    {
+                        println!(
+                            "   Parameters: {}",
+                            props_obj.keys().cloned().collect::<Vec<_>>().join(", ")
+                        );
+                    }
                     println!();
                 }
             }
