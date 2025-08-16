@@ -34,6 +34,11 @@ enum Commands {
     Tools,
     /// Show task statistics
     Stats,
+    /// List tasks with a specific status
+    Status {
+        /// The status to filter by (e.g., "todo", "in_progress", "completed", "pending")
+        status: String,
+    },
 }
 
 #[tokio::main]
@@ -79,6 +84,9 @@ async fn main() -> Result<()> {
         }
         Commands::Stats => {
             handle_stats_command(config).await?;
+        }
+        Commands::Status { status } => {
+            handle_status_command(config, status).await?;
         }
     }
 
@@ -167,6 +175,27 @@ async fn handle_stats_command(config: Config) -> Result<()> {
     } else {
         println!("\n✅ No overdue tasks found!");
     }
+
+    Ok(())
+}
+
+async fn handle_status_command(config: Config, status: String) -> Result<()> {
+    info!("Fetching tasks with status '{}' from MCP server", status);
+
+    // Create MCP client
+    let mcp_client = McpClient::new(&config).await?;
+
+    // Fetch tasks by status
+    let filtered_tasks = mcp_client.get_tasks_by_status(&status).await?;
+
+    if filtered_tasks.is_empty() {
+        println!("No tasks found with status '{}'", status);
+        return Ok(());
+    }
+
+    // Show the filtered task table
+    let table_output = TaskTableFormatter::format_tasks_by_status(&filtered_tasks, &status)?;
+    println!("{}", table_output);
 
     Ok(())
 }

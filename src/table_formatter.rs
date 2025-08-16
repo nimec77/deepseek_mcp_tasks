@@ -178,6 +178,36 @@ impl TaskTableFormatter {
 
         Ok(output)
     }
+
+    pub fn format_tasks_by_status(tasks: &[Task], status: &str) -> Result<String> {
+        if tasks.is_empty() {
+            return Ok(format!("No tasks found with status '{}'.", status));
+        }
+
+        let table_rows: Vec<TaskTableRow> = tasks
+            .iter()
+            .map(|task| TaskTableRow::from(task.clone()))
+            .collect();
+
+        let mut table = Table::new(table_rows);
+
+        // Apply styling
+        table
+            .with(Style::modern())
+            .with(Modify::new(Column::from(0)).with(Alignment::center())) // ID column centered
+            .with(Modify::new(Column::from(2)).with(Alignment::center())) // Status column centered
+            .with(Modify::new(Column::from(3)).with(Alignment::center())); // Priority column centered
+
+        let output = format!(
+            "\n📋 Tasks with Status '{}' ({} total)\n{}\n{}",
+            status,
+            tasks.len(),
+            "=".repeat(80),
+            table
+        );
+
+        Ok(output)
+    }
 }
 
 fn truncate_string(s: &str, max_len: usize) -> String {

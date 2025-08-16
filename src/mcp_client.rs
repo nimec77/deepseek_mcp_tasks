@@ -101,8 +101,6 @@ impl McpClient {
 
         let result = peer.call_tool(params).await?;
 
-        println!("result: {:?}", result);
-        
         // Extract content from the result
         let content = result.content;
         if let Some(content_vec) = content {
@@ -151,6 +149,22 @@ impl McpClient {
 
         info!("Found {} unfinished tasks", unfinished_tasks.len());
         Ok(unfinished_tasks)
+    }
+
+    pub async fn get_tasks_by_status(&self, status: &str) -> Result<Vec<Task>> {
+        debug!("Fetching tasks with status '{}' from MCP server", status);
+
+        // First, let's get all tasks and filter by status
+        // In the future, this could be optimized to use the TaskQuery with status filter
+        // if the MCP server supports it directly
+        let all_tasks = self.get_all_tasks().await?;
+        let filtered_tasks = all_tasks
+            .into_iter()
+            .filter(|task| task.status.to_lowercase() == status.to_lowercase())
+            .collect::<Vec<_>>();
+
+        info!("Found {} tasks with status '{}'", filtered_tasks.len(), status);
+        Ok(filtered_tasks)
     }
 
     fn is_task_unfinished(&self, task: &Task) -> bool {

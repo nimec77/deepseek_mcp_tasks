@@ -68,30 +68,27 @@ The server should start on `http://127.0.0.1:8000` by default.
 
 ### Basic Commands
 
-List all unfinished tasks:
+List all tasks:
 ```bash
 ./target/release/mcp-tasks list
 ```
 
-
-Show detailed statistics:
+List tasks with a specific status:
 ```bash
-./target/release/mcp-tasks list --detailed
-```
-
-Show only overdue tasks:
-```bash
-./target/release/mcp-tasks list --overdue-only
-```
-
-Check MCP server health:
-```bash
-./target/release/mcp-tasks health
+./target/release/mcp-tasks status pending
+./target/release/mcp-tasks status in_progress
+./target/release/mcp-tasks status completed
+./target/release/mcp-tasks status cancelled
 ```
 
 Show task statistics:
 ```bash
 ./target/release/mcp-tasks stats
+```
+
+Get available tools from MCP server:
+```bash
+./target/release/mcp-tasks tools
 ```
 
 Enable verbose logging:
@@ -101,9 +98,8 @@ Enable verbose logging:
 
 ### Command Options
 
-#### `list` command:
-- `--detailed`: Show comprehensive task statistics and breakdowns
-- `--overdue-only`: Display only tasks that are past their due date
+#### `status` command:
+- `<STATUS>`: The status to filter by (e.g., "pending", "in_progress", "completed", "cancelled")
 
 #### Global options:
 - `-v, --verbose`: Enable detailed logging output
@@ -112,12 +108,24 @@ Enable verbose logging:
 
 ### Simple Task List
 ```
-🎯 Unfinished Tasks (5 total)
+📋 All Tasks (5 total)
 ================================================================================
 ┌──────────┬────────────────────────────┬───────────┬──────────┬────────────┬────────────┬─────────┐
 │    ID    │           Title            │  Status   │ Priority │  Due Date  │  Created   │  Tags   │
 ├──────────┼────────────────────────────┼───────────┼──────────┼────────────┼────────────┼─────────┤
 │ abc12... │ Complete project setup     │ in_progre │   High   │ 2024-01-15 │ 2024-01-10 │ work    │
+│ def34... │ Review code changes        │  pending  │  Medium  │ 2024-01-20 │ 2024-01-12 │ review  │
+└──────────┴────────────────────────────┴───────────┴──────────┴────────────┴────────────┴─────────┘
+```
+
+### Tasks by Status
+```
+📋 Tasks with Status 'pending' (3 total)
+================================================================================
+┌──────────┬────────────────────────────┬───────────┬──────────┬────────────┬────────────┬─────────┐
+│    ID    │           Title            │  Status   │ Priority │  Due Date  │  Created   │  Tags   │
+├──────────┼────────────────────────────┼───────────┼──────────┼────────────┼────────────┼─────────┤
+│ abc12... │ Complete project setup     │  pending  │   High   │ 2024-01-15 │ 2024-01-10 │ work    │
 │ def34... │ Review code changes        │  pending  │  Medium  │ 2024-01-20 │ 2024-01-12 │ review  │
 └──────────┴────────────────────────────┴───────────┴──────────┴────────────┴────────────┴─────────┘
 ```
