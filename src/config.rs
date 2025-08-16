@@ -8,6 +8,7 @@ pub struct Config {
     pub deepseek_api_url: String,
     pub deepseek_model: String,
     pub mcp_server_command: String,
+    pub mcp_server_args: Vec<String>,
     pub request_timeout: u64,
     pub max_retries: u32,
     pub retry_delay: u64,
@@ -19,7 +20,8 @@ impl Default for Config {
             deepseek_api_key: String::new(),
             deepseek_api_url: "https://api.deepseek.com/v1/chat/completions".to_string(),
             deepseek_model: "deepseek-chat".to_string(),
-            mcp_server_command: "node".to_string(),
+            mcp_server_command: "./mcp_todo_task".to_string(),
+            mcp_server_args: vec![],
             request_timeout: 30,
             max_retries: 3,
             retry_delay: 1000,
@@ -41,7 +43,13 @@ impl Config {
             .unwrap_or_else(|_| "deepseek-chat".to_string());
 
         let mcp_server_command = env::var("MCP_SERVER_COMMAND")
-            .unwrap_or_else(|_| "node".to_string());
+            .unwrap_or_else(|_| "./mcp_todo_task".to_string());
+
+        let mcp_server_args = env::var("MCP_SERVER_ARGS")
+            .unwrap_or_else(|_| "".to_string())
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
         
 
         let request_timeout = env::var("REQUEST_TIMEOUT")
@@ -64,6 +72,7 @@ impl Config {
             deepseek_api_url,
             deepseek_model,
             mcp_server_command,
+            mcp_server_args,
             request_timeout,
             max_retries,
             retry_delay,

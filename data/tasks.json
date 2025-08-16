@@ -1,0 +1,101 @@
+{
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Setup Development Environment",
+      "description": "Install necessary tools and configure the development environment for the new project",
+      "status": "completed",
+      "priority": "high",
+      "created_at": "2024-01-15T09:00:00Z",
+      "updated_at": "2024-01-15T15:30:00Z",
+      "tags": ["setup", "development", "infrastructure"],
+      "assignee": "alice.smith",
+      "due_date": "2024-01-20T17:00:00Z"
+    },
+    {
+      "id": "task-002", 
+      "title": "Implement User Authentication",
+      "description": "Create login and registration functionality with proper validation and security measures",
+      "status": "in_progress",
+      "priority": "critical",
+      "created_at": "2024-01-16T10:30:00Z",
+      "updated_at": "2024-01-18T14:45:00Z",
+      "tags": ["authentication", "security", "backend"],
+      "assignee": "bob.johnson",
+      "due_date": "2024-01-25T17:00:00Z"
+    },
+    {
+      "id": "task-003",
+      "title": "Design Database Schema",
+      "description": "Create comprehensive database schema for user management and application data",
+      "status": "pending",
+      "priority": "high",
+      "created_at": "2024-01-17T11:15:00Z",
+      "updated_at": "2024-01-17T11:15:00Z",
+      "tags": ["database", "schema", "backend"],
+      "assignee": "charlie.brown",
+      "due_date": null
+    },
+    {
+      "id": "task-004",
+      "title": "Create API Documentation",
+      "description": "Write comprehensive API documentation for all endpoints using OpenAPI specification",
+      "status": "pending",
+      "priority": "medium",
+      "created_at": "2024-01-18T08:20:00Z",
+      "updated_at": "2024-01-18T08:20:00Z",
+      "tags": ["documentation", "api", "openapi"],
+      "assignee": null,
+      "due_date": "2024-02-01T17:00:00Z"
+    },
+    {
+      "id": "task-005",
+      "title": "Implement Frontend Components",
+      "description": "Build reusable UI components for the dashboard and user interface",
+      "status": "pending",
+      "priority": "medium",
+      "created_at": "2024-01-18T13:45:00Z",
+      "updated_at": "2024-01-18T13:45:00Z",
+      "tags": ["frontend", "ui", "components"],
+      "assignee": "diana.prince",
+      "due_date": "2024-02-05T17:00:00Z"
+    },
+    {
+      "id": "task-006",
+      "title": "Write Unit Tests",
+      "description": "Create comprehensive unit tests for core business logic and utility functions",
+      "status": "cancelled",
+      "priority": "low",
+      "created_at": "2024-01-19T09:30:00Z", 
+      "updated_at": "2024-01-20T16:00:00Z",
+      "tags": ["testing", "quality", "unit-tests"],
+      "assignee": "eve.taylor",
+      "due_date": null
+    },
+    {
+      "id": "task-007",
+      "title": "Setup CI/CD Pipeline",
+      "description": "Configure automated build, test, and deployment pipeline using GitHub Actions",
+      "status": "in_progress",
+      "priority": "high",
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-21T09:15:00Z",
+      "tags": ["ci-cd", "automation", "deployment"],
+      "assignee": "frank.miller",
+      "due_date": "2024-01-30T17:00:00Z"
+    },
+    {
+      "id": "task-008",
+      "title": "Performance Optimization",
+      "description": "Analyze and optimize application performance, focusing on database queries and API response times",
+      "status": "pending",
+      "priority": "medium",
+      "created_at": "2024-01-21T14:20:00Z",
+      "updated_at": "2024-01-21T14:20:00Z",
+      "tags": ["performance", "optimization", "backend"],
+      "assignee": null,
+      "due_date": "2024-02-10T17:00:00Z"
+    }
+  ]
+}

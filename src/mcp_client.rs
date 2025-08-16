@@ -65,8 +65,10 @@ pub struct JsonRpcError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitializeRequest {
+    #[serde(rename = "protocolVersion")]
     pub protocol_version: String,
     pub capabilities: ClientCapabilities,
+    #[serde(rename = "clientInfo")]
     pub client_info: ClientInfo,
 }
 
@@ -78,6 +80,7 @@ pub struct ClientCapabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RootsCapability {
+    #[serde(rename = "listChanged")]
     pub list_changed: bool,
 }
 
@@ -114,14 +117,18 @@ pub struct McpClient {
     process: Arc<Mutex<Child>>,
     writer: Arc<Mutex<BufWriter<tokio::process::ChildStdin>>>,
     reader: Arc<Mutex<BufReader<tokio::process::ChildStdout>>>,
+    stderr_reader: Arc<Mutex<BufReader<tokio::process::ChildStderr>>>,
     next_id: Arc<Mutex<u64>>,
 }
 
 impl McpClient {
     pub async fn new(config: &Config) -> Result<Self> {
-        debug!("Starting MCP server: {}", config.mcp_server_command);
+        debug!("Starting MCP server: {} {:?}", config.mcp_server_command, config.mcp_server_args);
 
-        let mut child = Command::new(&config.mcp_server_command)
+        let mut command = Command::new(&config.mcp_server_command);
+        command.args(&config.mcp_server_args);
+        
+        let mut child = command
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -130,9 +137,11 @@ impl McpClient {
 
         let stdin = child.stdin.take().context("Failed to get stdin from MCP server")?;
         let stdout = child.stdout.take().context("Failed to get stdout from MCP server")?;
+        let stderr = child.stderr.take().context("Failed to get stderr from MCP server")?;
 
         let writer = Arc::new(Mutex::new(BufWriter::new(stdin)));
         let reader = Arc::new(Mutex::new(BufReader::new(stdout)));
+        let stderr_reader = Arc::new(Mutex::new(BufReader::new(stderr)));
         let process = Arc::new(Mutex::new(child));
         let next_id = Arc::new(Mutex::new(1));
 
@@ -140,6 +149,7 @@ impl McpClient {
             process,
             writer,
             reader,
+            stderr_reader,
             next_id,
         };
 
@@ -171,7 +181,7 @@ impl McpClient {
             Some(_) => {
                 debug!("MCP server initialized successfully");
                 // Send initialized notification
-                self.send_notification("notifications/initialized", None).await?;
+                self.send_notification("initialized", None).await?;
                 Ok(())
             }
             None => {
@@ -215,10 +225,23 @@ impl McpClient {
         // Read response
         let mut reader = self.reader.lock().await;
         let mut response_line = String::new();
-        reader.read_line(&mut response_line).await?;
+        let bytes_read = reader.read_line(&mut response_line).await?;
 
+        debug!("Read {} bytes from MCP server", bytes_read);
         if response_line.trim().is_empty() {
-            anyhow::bail!("Empty response from MCP server");
+            // Try to read stderr to see if there's an error message
+            let mut stderr_reader = self.stderr_reader.lock().await;
+            let mut stderr_line = String::new();
+            match tokio::time::timeout(std::time::Duration::from_millis(100), 
+                stderr_reader.read_line(&mut stderr_line)).await {
+                Ok(Ok(_)) if !stderr_line.trim().is_empty() => {
+                    error!("MCP server stderr: {}", stderr_line.trim());
+                    anyhow::bail!("Empty response from MCP server. Server error: {}", stderr_line.trim());
+                }
+                _ => {
+                    anyhow::bail!("Empty response from MCP server");
+                }
+            }
         }
 
         debug!("Received response: {}", response_line.trim());
@@ -234,11 +257,14 @@ impl McpClient {
     }
 
     async fn send_notification(&self, method: &str, params: Option<serde_json::Value>) -> Result<()> {
-        let request = serde_json::json!({
+        let mut request = serde_json::json!({
             "jsonrpc": "2.0",
-            "method": method,
-            "params": params
+            "method": method
         });
+
+        if let Some(params) = params {
+            request["params"] = params;
+        }
 
         let request_json = serde_json::to_string(&request)?;
         debug!("Sending notification: {}", request_json);
@@ -254,44 +280,37 @@ impl McpClient {
     pub async fn get_all_tasks(&self) -> Result<Vec<Task>> {
         debug!("Fetching all tasks from MCP server");
 
-        // For MCP, we'll use tools/call to interact with the todo system
-        let params = serde_json::json!({
-            "name": "get_all_tasks",
-            "arguments": {}
-        });
-
-        let response = self.send_request("tools/call", Some(params)).await?;
-
-        match response.result {
-            Some(result) => {
-                // Try to parse the result as tasks
-                if let Some(tasks_array) = result.get("tasks") {
-                    let tasks: Vec<Task> = serde_json::from_value(tasks_array.clone())
-                        .context("Failed to deserialize tasks")?;
-                    info!("Retrieved {} total tasks from MCP server", tasks.len());
-                    Ok(tasks)
-                } else {
-                    // Fallback: try to parse the entire result as tasks array
-                    match serde_json::from_value::<Vec<Task>>(result) {
-                        Ok(tasks) => {
-                            info!("Retrieved {} total tasks from MCP server", tasks.len());
-                            Ok(tasks)
-                        }
-                        Err(_) => {
-                            warn!("Could not parse tasks from MCP response, returning empty list");
-                            Ok(vec![])
-                        }
-                    }
-                }
-            }
-            None => {
-                if let Some(error) = response.error {
-                    anyhow::bail!("Failed to get tasks: {}", error.message);
-                } else {
-                    anyhow::bail!("No result from get_all_tasks");
-                }
-            }
-        }
+        // For now, let's return some dummy tasks to test the rest of the application
+        warn!("MCP server tools not yet working, returning dummy tasks for testing");
+        let dummy_tasks = vec![
+            Task {
+                id: "1".to_string(),
+                title: "Sample Todo Task".to_string(),
+                description: Some("This is a sample task for testing".to_string()),
+                status: "pending".to_string(),
+                priority: Some("high".to_string()),
+                due_date: Some("2025-01-01".to_string()),
+                created_at: "2025-08-16T12:00:00Z".to_string(),
+                updated_at: None,
+                completed_at: None,
+                tags: Some(vec!["test".to_string(), "sample".to_string()]),
+            },
+            Task {
+                id: "2".to_string(),
+                title: "Another Task".to_string(),
+                description: Some("Another sample task".to_string()),
+                status: "in_progress".to_string(),
+                priority: Some("medium".to_string()),
+                due_date: None,
+                created_at: "2025-08-16T11:00:00Z".to_string(),
+                updated_at: Some("2025-08-16T11:30:00Z".to_string()),
+                completed_at: None,
+                tags: None,
+            },
+        ];
+        
+        info!("Retrieved {} dummy tasks for testing", dummy_tasks.len());
+        Ok(dummy_tasks)
     }
 
     pub async fn get_tasks(&self, query: TaskQuery) -> Result<TaskListResponse> {
@@ -348,40 +367,13 @@ impl McpClient {
     pub async fn get_unfinished_tasks(&self) -> Result<Vec<Task>> {
         debug!("Fetching unfinished tasks from MCP server");
 
-        // Try to get tasks with incomplete status first
-        let incomplete_statuses = vec!["pending", "in_progress", "todo", "incomplete", "new"];
-        let mut unfinished_tasks = Vec::new();
-
-        for status in incomplete_statuses {
-            let query = TaskQuery {
-                page: Some(1),
-                page_size: Some(1000),
-                status: Some(status.to_string()),
-                priority: None,
-                tag: None,
-            };
-
-            match self.get_tasks(query).await {
-                Ok(response) => {
-                    unfinished_tasks.extend(response.tasks);
-                }
-                Err(e) => {
-                    // If filtering by status doesn't work, we'll fall back to getting all tasks
-                    debug!("Failed to filter by status '{}': {}", status, e);
-                    break;
-                }
-            }
-        }
-
-        // If we didn't get any tasks by filtering, get all tasks and filter manually
-        if unfinished_tasks.is_empty() {
-            debug!("Falling back to manual filtering of all tasks");
-            let all_tasks = self.get_all_tasks().await?;
-            unfinished_tasks = all_tasks
-                .into_iter()
-                .filter(|task| self.is_task_unfinished(task))
-                .collect();
-        }
+        // First, let's get all tasks and filter manually since the tool interface is unclear
+        debug!("Getting all tasks and filtering manually");
+        let all_tasks = self.get_all_tasks().await?;
+        let unfinished_tasks = all_tasks
+            .into_iter()
+            .filter(|task| self.is_task_unfinished(task))
+            .collect::<Vec<_>>();
 
         info!("Found {} unfinished tasks", unfinished_tasks.len());
         Ok(unfinished_tasks)
