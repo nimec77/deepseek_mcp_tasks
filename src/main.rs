@@ -4,12 +4,10 @@ use tracing::{error, info};
 
 mod config;
 mod logger;
-mod deepseek_client;
 mod mcp_client;
 mod table_formatter;
 
 use config::Config;
-use deepseek_client::DeepSeekClient;
 use mcp_client::McpClient;
 use table_formatter::TaskTableFormatter;
 
@@ -30,9 +28,6 @@ struct Cli {
 enum Commands {
     /// List all unfinished tasks
     List {
-        /// Use DeepSeek AI to analyze tasks
-        #[arg(long)]
-        use_ai: bool,
 
         /// Show detailed breakdown
         #[arg(long)]
@@ -80,8 +75,8 @@ async fn main() -> Result<()> {
     info!("DeepSeek MCP Tasks application started");
 
     match cli.command {
-        Commands::List { use_ai, detailed, overdue_only } => {
-            handle_list_command(config, use_ai, detailed, overdue_only).await?;
+        Commands::List { detailed, overdue_only } => {
+            handle_list_command(config, detailed, overdue_only).await?;
         }
         Commands::Health => {
             handle_health_command(config).await?;
@@ -96,7 +91,6 @@ async fn main() -> Result<()> {
 
 async fn handle_list_command(
     config: Config,
-    use_ai: bool,
     detailed: bool,
     overdue_only: bool,
 ) -> Result<()> {
@@ -113,41 +107,6 @@ async fn handle_list_command(
         let overdue_output = TaskTableFormatter::format_overdue_tasks(&unfinished_tasks)?;
         println!("{}", overdue_output);
         return Ok(());
-    }
-
-    if use_ai {
-        info!("Using DeepSeek AI to analyze tasks");
-
-        // Create DeepSeek client
-        let deepseek_client = DeepSeekClient::new(config)?;
-
-        // Get all tasks for AI analysis
-        let all_tasks = mcp_client.get_all_tasks().await?;
-        let tasks_json = serde_json::to_string_pretty(&all_tasks)?;
-
-        // Analyze tasks with DeepSeek
-        match deepseek_client.analyze_tasks(&tasks_json).await {
-            Ok(ai_response) => {
-                println!("\n🤖 AI Analysis Results:\n{}", "=".repeat(50));
-                
-                // Try to parse the AI response as JSON
-                match serde_json::from_str::<serde_json::Value>(&ai_response) {
-                    Ok(parsed_json) => {
-                        println!("{}", serde_json::to_string_pretty(&parsed_json)?);
-                    }
-                    Err(_) => {
-                        // If not valid JSON, just print the raw response
-                        println!("{}", ai_response);
-                    }
-                }
-            }
-            Err(e) => {
-                error!("AI analysis failed: {}", e);
-                eprintln!("Warning: AI analysis failed, showing regular task list instead.");
-            }
-        }
-
-        println!("\n");
     }
 
     // Show the task table
