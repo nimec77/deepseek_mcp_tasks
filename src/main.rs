@@ -3,11 +3,13 @@ use clap::{Parser, Subcommand};
 use tracing::{error, info};
 
 mod config;
+mod deepseek_client;
 mod logger;
 mod mcp_client;
 mod table_formatter;
 
 use config::Config;
+use deepseek_client::DeepSeekClient;
 use mcp_client::McpClient;
 use table_formatter::TaskTableFormatter;
 
@@ -39,6 +41,8 @@ enum Commands {
         /// The status to filter by (e.g., "todo", "in_progress", "completed", "pending")
         status: String,
     },
+    /// Analyze pending tasks using DeepSeek AI
+    Analyze,
 }
 
 #[tokio::main]
@@ -87,6 +91,69 @@ async fn main() -> Result<()> {
         }
         Commands::Status { status } => {
             handle_status_command(config, status).await?;
+        }
+        Commands::Analyze => {
+            handle_analyze_command(config).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_analyze_command(config: Config) -> Result<()> {
+    info!("Starting DeepSeek analysis of pending tasks");
+
+    // Create MCP client
+    let mcp_client = McpClient::new(&config).await?;
+
+    // Fetch pending tasks
+    let pending_tasks = mcp_client.get_tasks_by_status("pending").await?;
+
+    if pending_tasks.is_empty() {
+        println!("🎉 No pending tasks found to analyze!");
+        return Ok(());
+    }
+
+    info!("Found {} pending tasks for analysis", pending_tasks.len());
+
+    // Create DeepSeek client
+    let deepseek_client = DeepSeekClient::new().map_err(|e| {
+        error!("Failed to create DeepSeek client: {}", e);
+        eprintln!("❌ Failed to initialize DeepSeek client: {}", e);
+        eprintln!("\nPlease ensure you have set the DEEPSEEK_API_KEY environment variable.");
+        eprintln!("You can add it to your .env file or export it in your shell:");
+        eprintln!("export DEEPSEEK_API_KEY=your_api_key_here");
+        e
+    })?;
+
+    // Show pending tasks before analysis
+    println!("\n📋 Found {} pending tasks:", pending_tasks.len());
+    for (idx, task) in pending_tasks.iter().enumerate() {
+        println!("  {}. {} (Status: {})", idx + 1, task.title, task.status);
+        if let Some(priority) = &task.priority {
+            println!("     Priority: {}", priority);
+        }
+        if let Some(due_date) = &task.due_date {
+            println!("     Due: {}", due_date);
+        }
+    }
+
+    println!("\n🤖 Analyzing tasks with DeepSeek AI...\n");
+
+    // Analyze the tasks using DeepSeek
+    match deepseek_client.analyze_tasks(pending_tasks).await {
+        Ok(analysis) => {
+            println!("📊 DeepSeek Analysis Results:\n");
+            println!("{}", analysis);
+        }
+        Err(e) => {
+            error!("DeepSeek analysis failed: {}", e);
+            eprintln!("❌ Failed to analyze tasks: {}", e);
+            eprintln!("\nPlease check:");
+            eprintln!("1. Your DEEPSEEK_API_KEY is valid");
+            eprintln!("2. You have sufficient API credits");
+            eprintln!("3. Your internet connection is working");
+            std::process::exit(1);
         }
     }
 

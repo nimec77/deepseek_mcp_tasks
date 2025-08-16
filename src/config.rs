@@ -9,6 +9,7 @@ pub struct Config {
     pub request_timeout: u64,
     pub max_retries: u32,
     pub retry_delay: u64,
+    pub deepseek_api_key: Option<String>,
 }
 
 impl Default for Config {
@@ -19,6 +20,7 @@ impl Default for Config {
             request_timeout: 30,
             max_retries: 3,
             retry_delay: 1000,
+            deepseek_api_key: None,
         }
     }
 }
@@ -51,12 +53,15 @@ impl Config {
             .parse::<u64>()
             .context("RETRY_DELAY must be a valid number")?;
 
+        let deepseek_api_key = env::var("DEEPSEEK_API_KEY").ok();
+
         Ok(Self {
             mcp_server_command,
             mcp_server_args,
             request_timeout,
             max_retries,
             retry_delay,
+            deepseek_api_key,
         })
     }
 
