@@ -4,7 +4,8 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tracing::{debug, error, info};
+use tokio::time::{sleep, timeout, Duration};
+use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
 
@@ -39,6 +40,20 @@ pub struct TaskQuery {
     pub status: Option<String>,
     pub priority: Option<String>,
     pub tag: Option<String>,
+}
+
+// Tool structures for MCP protocol
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tool {
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(rename = "inputSchema")]
+    pub input_schema: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolsListResponse {
+    pub tools: Vec<Tool>,
 }
 
 // JSON-RPC structures for MCP protocol
@@ -124,6 +139,7 @@ pub struct McpClient {
     reader: Arc<Mutex<BufReader<tokio::process::ChildStdout>>>,
     stderr_reader: Arc<Mutex<BufReader<tokio::process::ChildStderr>>>,
     next_id: Arc<Mutex<u64>>,
+    is_initialized: Arc<Mutex<bool>>,
 }
 
 impl McpClient {
@@ -161,6 +177,7 @@ impl McpClient {
         let stderr_reader = Arc::new(Mutex::new(BufReader::new(stderr)));
         let process = Arc::new(Mutex::new(child));
         let next_id = Arc::new(Mutex::new(1));
+        let is_initialized = Arc::new(Mutex::new(false));
 
         let client = Self {
             process,
@@ -168,6 +185,7 @@ impl McpClient {
             reader,
             stderr_reader,
             next_id,
+            is_initialized,
         };
 
         // Initialize the MCP connection
@@ -199,8 +217,20 @@ impl McpClient {
         match response.result {
             Some(_) => {
                 debug!("MCP server initialized successfully");
-                // Send initialized notification
-                self.send_notification("initialized", None).await?;
+                
+                // Send initialized notification directly without params
+                let notification = r#"{"jsonrpc":"2.0","method":"initialized"}"#;
+                debug!("Sending notification: {}", notification);
+                
+                let mut writer = self.writer.lock().await;
+                writer.write_all(notification.as_bytes()).await?;
+                writer.write_all(b"\n").await?;
+                writer.flush().await?;
+                
+                // Mark as initialized
+                let mut initialized = self.is_initialized.lock().await;
+                *initialized = true;
+                
                 Ok(())
             }
             None => {
@@ -237,7 +267,7 @@ impl McpClient {
         let request_json = serde_json::to_string(&request)?;
         debug!("Sending request: {}", request_json);
 
-        // Send request
+        // Send request with timeout
         {
             let mut writer = self.writer.lock().await;
             writer.write_all(request_json.as_bytes()).await?;
@@ -251,12 +281,13 @@ impl McpClient {
         let bytes_read = reader.read_line(&mut response_line).await?;
 
         debug!("Read {} bytes from MCP server", bytes_read);
+        
         if response_line.trim().is_empty() {
             // Try to read stderr to see if there's an error message
             let mut stderr_reader = self.stderr_reader.lock().await;
             let mut stderr_line = String::new();
-            match tokio::time::timeout(
-                std::time::Duration::from_millis(100),
+            match timeout(
+                Duration::from_millis(500),
                 stderr_reader.read_line(&mut stderr_line),
             )
             .await
@@ -291,20 +322,24 @@ impl McpClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<()> {
-        let mut request = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": method
-        });
+        let request_json = if let Some(params) = params {
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": method,
+                "params": params
+            })
+        } else {
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": method
+            })
+        };
 
-        if let Some(params) = params {
-            request["params"] = params;
-        }
-
-        let request_json = serde_json::to_string(&request)?;
-        debug!("Sending notification: {}", request_json);
+        let request_str = serde_json::to_string(&request_json)?;
+        debug!("Sending notification: {}", request_str);
 
         let mut writer = self.writer.lock().await;
-        writer.write_all(request_json.as_bytes()).await?;
+        writer.write_all(request_str.as_bytes()).await?;
         writer.write_all(b"\n").await?;
         writer.flush().await?;
 
@@ -315,11 +350,8 @@ impl McpClient {
         debug!("Fetching all tasks from MCP server");
 
         let params = serde_json::json!({
-            "name": "get_tasks",
-            "arguments": {
-                "page": 1,
-                "page_size": 1000  // Get all tasks
-            }
+            "name": "list_tasks",
+            "arguments": {}
         });
 
         let response = self.send_request("tools/call", Some(params)).await?;
@@ -451,23 +483,53 @@ impl McpClient {
         }
     }
 
-    pub async fn health_check(&self) -> Result<()> {
-        debug!("Checking MCP server health");
+    pub async fn get_tools_list(&self) -> Result<Vec<Tool>> {
+        debug!("Getting list of available tools from MCP server");
 
-        // Try to ping the server with a simple request
-        let params = serde_json::json!({
-            "name": "ping",
-            "arguments": {}
-        });
+        // Check if we're initialized
+        let initialized = *self.is_initialized.lock().await;
+        if !initialized {
+            warn!("MCP client not initialized, attempting to initialize...");
+            self.initialize().await?;
+        }
 
-        match self.send_request("tools/call", Some(params)).await {
-            Ok(_) => {
-                info!("MCP server is healthy");
-                Ok(())
+        // Add a small delay to ensure the server is ready
+        sleep(Duration::from_millis(100)).await;
+
+        let response = self.send_request("tools/list", Some(serde_json::json!({}))).await?;
+
+        match response.result {
+            Some(result) => {
+                // Try to parse as ToolsListResponse
+                match serde_json::from_value::<ToolsListResponse>(result.clone()) {
+                    Ok(tools_response) => {
+                        debug!(
+                            "Retrieved {} tools from MCP server",
+                            tools_response.tools.len()
+                        );
+                        Ok(tools_response.tools)
+                    }
+                    Err(_) => {
+                        // Fallback: try to parse as simple tools array
+                        match serde_json::from_value::<Vec<Tool>>(result) {
+                            Ok(tools) => {
+                                debug!("Retrieved {} tools from MCP server", tools.len());
+                                Ok(tools)
+                            }
+                            Err(e) => {
+                                error!("Failed to parse tools response: {}", e);
+                                anyhow::bail!("Failed to parse tools response from MCP server");
+                            }
+                        }
+                    }
+                }
             }
-            Err(e) => {
-                error!("MCP server health check failed: {}", e);
-                anyhow::bail!("MCP server is not responding properly: {}", e)
+            None => {
+                if let Some(error) = response.error {
+                    anyhow::bail!("Failed to get tools list: {}", error.message);
+                } else {
+                    anyhow::bail!("No result from tools/list");
+                }
             }
         }
     }

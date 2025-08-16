@@ -38,8 +38,8 @@ enum Commands {
         #[arg(long)]
         overdue_only: bool,
     },
-    /// Check the health of MCP server
-    Health,
+    /// Get list of available tools from MCP server
+    Tools,
     /// Show task statistics
     Stats,
 }
@@ -85,8 +85,8 @@ async fn main() -> Result<()> {
         } => {
             handle_list_command(config, detailed, overdue_only).await?;
         }
-        Commands::Health => {
-            handle_health_command(config).await?;
+        Commands::Tools => {
+            handle_tools_list_command(config).await?;
         }
         Commands::Stats => {
             handle_stats_command(config).await?;
@@ -130,18 +130,36 @@ async fn handle_list_command(config: Config, detailed: bool, overdue_only: bool)
     Ok(())
 }
 
-async fn handle_health_command(config: Config) -> Result<()> {
-    info!("Checking MCP server health");
+async fn handle_tools_list_command(config: Config) -> Result<()> {
+    info!("Getting list of available tools from MCP server");
 
     let mcp_client = McpClient::new(&config).await?;
 
-    match mcp_client.health_check().await {
-        Ok(()) => {
-            println!("✅ MCP server is healthy and responding");
+    match mcp_client.get_tools_list().await {
+        Ok(tools) => {
+            if tools.is_empty() {
+                println!("No tools available on the MCP server");
+            } else {
+                println!("Available tools on MCP server:");
+                println!();
+                for (index, tool) in tools.iter().enumerate() {
+                    println!("{}. {}", index + 1, tool.name);
+                    if let Some(description) = &tool.description {
+                        println!("   Description: {}", description);
+                    }
+                    if let Some(schema) = &tool.input_schema
+                        && let Some(properties) = schema.get("properties")
+                            && let Some(props_obj) = properties.as_object()
+                                && !props_obj.is_empty() {
+                                    println!("   Parameters: {}", props_obj.keys().cloned().collect::<Vec<_>>().join(", "));
+                                }
+                    println!();
+                }
+            }
         }
         Err(e) => {
-            error!("MCP server health check failed: {}", e);
-            eprintln!("❌ MCP server health check failed: {}", e);
+            error!("Failed to get tools list: {}", e);
+            eprintln!("❌ Failed to get tools list: {}", e);
             eprintln!(
                 "Please ensure the MCP server command is correct: {}",
                 config.mcp_server_command
