@@ -463,8 +463,11 @@ impl McpClient {
 impl Drop for McpClient {
     fn drop(&mut self) {
         // Try to terminate the process gracefully
+        // Note: Cannot use `.await` in Drop, so we must use the sync version.
         if let Ok(mut process) = self.process.try_lock() {
-            let _ = process.kill();
+            // Attempt to kill the process synchronously.
+            // If `kill` is async, consider providing a sync fallback or document the limitation.
+            std::mem::drop(process.kill());
         }
     }
 }
