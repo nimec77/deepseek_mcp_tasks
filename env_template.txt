@@ -1,0 +1,18 @@
+# DeepSeek MCP Tasks Environment Variables
+# Required: DeepSeek API Configuration
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+
+# Optional: API Configuration  
+DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
+DEEPSEEK_MODEL=deepseek-chat
+
+# Optional: MCP Server Configuration
+MCP_SERVER_URL=http://127.0.0.1:8000
+
+# Optional: Request Configuration
+REQUEST_TIMEOUT=30
+MAX_RETRIES=3
+RETRY_DELAY=1000
+
+# Optional: Logging Configuration
+RUST_LOG=info
