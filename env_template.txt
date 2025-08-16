@@ -1,14 +1,8 @@
-# DeepSeek MCP Tasks Environment Variables
-# Required: DeepSeek API Configuration
-DEEPSEEK_API_KEY=your_deepseek_api_key_here
-
-# Optional: API Configuration  
-DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
-DEEPSEEK_MODEL=deepseek-chat
+# MCP Tasks Environment Variables
 
 # Optional: MCP Server Configuration (stdio-based)
-MCP_SERVER_COMMAND=node
-MCP_SERVER_ARGS=todo-server.js
+MCP_SERVER_COMMAND=./mcp_todo_task
+MCP_SERVER_ARGS=
 
 # Optional: Request Configuration
 REQUEST_TIMEOUT=30

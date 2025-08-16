@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::config::Config;
 
@@ -183,11 +183,11 @@ impl McpClient {
         let init_request = InitializeRequest {
             protocol_version: "2024-11-05".to_string(),
             capabilities: ClientCapabilities {
-                roots: Some(RootsCapability { list_changed: true }),
-                sampling: Some(SamplingCapability {}),
+                roots: None,
+                sampling: None,
             },
             client_info: ClientInfo {
-                name: "deepseek-mcp-tasks".to_string(),
+                name: "mcp-tasks".to_string(),
                 version: "0.1.0".to_string(),
             },
         };
@@ -314,37 +314,50 @@ impl McpClient {
     pub async fn get_all_tasks(&self) -> Result<Vec<Task>> {
         debug!("Fetching all tasks from MCP server");
 
-        // For now, let's return some dummy tasks to test the rest of the application
-        warn!("MCP server tools not yet working, returning dummy tasks for testing");
-        let dummy_tasks = vec![
-            Task {
-                id: "1".to_string(),
-                title: "Sample Todo Task".to_string(),
-                description: Some("This is a sample task for testing".to_string()),
-                status: "pending".to_string(),
-                priority: Some("high".to_string()),
-                due_date: Some("2025-01-01".to_string()),
-                created_at: "2025-08-16T12:00:00Z".to_string(),
-                updated_at: None,
-                completed_at: None,
-                tags: Some(vec!["test".to_string(), "sample".to_string()]),
-            },
-            Task {
-                id: "2".to_string(),
-                title: "Another Task".to_string(),
-                description: Some("Another sample task".to_string()),
-                status: "in_progress".to_string(),
-                priority: Some("medium".to_string()),
-                due_date: None,
-                created_at: "2025-08-16T11:00:00Z".to_string(),
-                updated_at: Some("2025-08-16T11:30:00Z".to_string()),
-                completed_at: None,
-                tags: None,
-            },
-        ];
+        let params = serde_json::json!({
+            "name": "get_tasks",
+            "arguments": {
+                "page": 1,
+                "page_size": 1000  // Get all tasks
+            }
+        });
 
-        info!("Retrieved {} dummy tasks for testing", dummy_tasks.len());
-        Ok(dummy_tasks)
+        let response = self.send_request("tools/call", Some(params)).await?;
+
+        match response.result {
+            Some(result) => {
+                // Try to parse as TaskListResponse first
+                match serde_json::from_value::<TaskListResponse>(result.clone()) {
+                    Ok(task_response) => {
+                        debug!(
+                            "Retrieved {} tasks from MCP server",
+                            task_response.tasks.len()
+                        );
+                        Ok(task_response.tasks)
+                    }
+                    Err(_) => {
+                        // Fallback: try to parse as simple tasks array
+                        match serde_json::from_value::<Vec<Task>>(result) {
+                            Ok(tasks) => {
+                                debug!("Retrieved {} tasks from MCP server", tasks.len());
+                                Ok(tasks)
+                            }
+                            Err(e) => {
+                                error!("Failed to parse tasks response: {}", e);
+                                anyhow::bail!("Failed to parse tasks response from MCP server");
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                if let Some(error) = response.error {
+                    anyhow::bail!("Failed to get tasks: {}", error.message);
+                } else {
+                    anyhow::bail!("No result from get_tasks");
+                }
+            }
+        }
     }
 
     #[allow(dead_code)]

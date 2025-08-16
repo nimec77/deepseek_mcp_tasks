@@ -33,7 +33,7 @@ pub fn init_logger() -> Result<()> {
 }
 
 pub fn setup_logger_with_level(level: Level) -> Result<()> {
-    let filter = EnvFilter::new(format!("deepseek_mcp_tasks={}", level));
+    let filter = EnvFilter::new(format!("mcp_tasks={}", level));
 
     let formatting_layer = fmt::layer()
         .with_target(true)

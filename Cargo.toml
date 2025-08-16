@@ -1,8 +1,8 @@
 [package]
-name = "deepseek_mcp_tasks"
+name = "mcp_tasks"
 version = "0.1.0"
 edition = "2024"
-description = "A Rust application that integrates with MCP todo server and uses DeepSeek models"
+description = "A Rust application that integrates with MCP todo server"
 authors = ["Your Name <your.email@example.com>"]
 
 [dependencies]

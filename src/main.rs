@@ -12,9 +12,9 @@ use mcp_client::McpClient;
 use table_formatter::TaskTableFormatter;
 
 #[derive(Parser)]
-#[command(name = "deepseek-mcp-tasks")]
+#[command(name = "mcp-tasks")]
 #[command(
-    about = "A Rust application that integrates with MCP todo server and uses DeepSeek models"
+    about = "A Rust application that integrates with MCP todo server"
 )]
 #[command(version)]
 struct Cli {
@@ -65,10 +65,9 @@ async fn main() -> Result<()> {
             error!("Failed to load configuration: {}", e);
             eprintln!("Error: {}", e);
             eprintln!("\nPlease ensure you have set the following environment variables:");
-            eprintln!("- DEEPSEEK_API_KEY: Your DeepSeek API key");
-            eprintln!("- MCP_SERVER_COMMAND (optional): MCP server command (default: node)");
+            eprintln!("- MCP_SERVER_COMMAND (optional): MCP server command (default: ./mcp_todo_task)");
             eprintln!(
-                "- MCP_SERVER_ARGS (optional): MCP server arguments (default: todo-server.js)"
+                "- MCP_SERVER_ARGS (optional): MCP server arguments (default: empty)"
             );
             eprintln!(
                 "\nYou can create a .env file with these variables or export them in your shell."
@@ -77,7 +76,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    info!("DeepSeek MCP Tasks application started");
+    info!("MCP Tasks application started");
 
     match cli.command {
         Commands::List {

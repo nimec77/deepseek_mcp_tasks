@@ -4,9 +4,6 @@ use std::env;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
-    pub deepseek_api_key: String,
-    pub deepseek_api_url: String,
-    pub deepseek_model: String,
     pub mcp_server_command: String,
     pub mcp_server_args: Vec<String>,
     pub request_timeout: u64,
@@ -17,9 +14,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            deepseek_api_key: String::new(),
-            deepseek_api_url: "https://api.deepseek.com/v1/chat/completions".to_string(),
-            deepseek_model: "deepseek-chat".to_string(),
             mcp_server_command: "./mcp_todo_task".to_string(),
             mcp_server_args: vec![],
             request_timeout: 30,
@@ -32,15 +26,6 @@ impl Default for Config {
 impl Config {
     pub fn from_env() -> Result<Self> {
         dotenv::dotenv().ok(); // Load .env file if it exists
-
-        let deepseek_api_key = env::var("DEEPSEEK_API_KEY")
-            .context("DEEPSEEK_API_KEY environment variable is required")?;
-
-        let deepseek_api_url = env::var("DEEPSEEK_API_URL")
-            .unwrap_or_else(|_| "https://api.deepseek.com/v1/chat/completions".to_string());
-
-        let deepseek_model =
-            env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
 
         let mcp_server_command =
             env::var("MCP_SERVER_COMMAND").unwrap_or_else(|_| "./mcp_todo_task".to_string());
@@ -67,9 +52,6 @@ impl Config {
             .context("RETRY_DELAY must be a valid number")?;
 
         Ok(Self {
-            deepseek_api_key,
-            deepseek_api_url,
-            deepseek_model,
             mcp_server_command,
             mcp_server_args,
             request_timeout,
@@ -79,18 +61,6 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.deepseek_api_key.is_empty() {
-            anyhow::bail!("DeepSeek API key cannot be empty");
-        }
-
-        if self.deepseek_api_url.is_empty() {
-            anyhow::bail!("DeepSeek API URL cannot be empty");
-        }
-
-        if self.deepseek_model.is_empty() {
-            anyhow::bail!("DeepSeek model cannot be empty");
-        }
-
         if self.mcp_server_command.is_empty() {
             anyhow::bail!("MCP server command cannot be empty");
         }
