@@ -1,4 +1,4 @@
-use tabled::{Table, Tabled, settings::{Style, Alignment, Modify, object::Columns}};
+use tabled::{Table, Tabled, settings::{Style, Alignment, Modify, object::Column}};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use crate::mcp_client::Task;
@@ -59,15 +59,15 @@ impl TaskTableFormatter {
         // Apply styling
         table
             .with(Style::modern())
-            .with(Modify::new(Columns::single(0)).with(Alignment::center())) // ID column centered
-            .with(Modify::new(Columns::single(2)).with(Alignment::center())) // Status column centered
-            .with(Modify::new(Columns::single(3)).with(Alignment::center())); // Priority column centered
+            .with(Modify::new(Column::from(0)).with(Alignment::center())) // ID column centered
+            .with(Modify::new(Column::from(2)).with(Alignment::center())) // Status column centered
+            .with(Modify::new(Column::from(3)).with(Alignment::center())); // Priority column centered
 
         let output = format!(
             "\n🎯 Unfinished Tasks ({} total)\n{}\n{}",
             tasks.len(),
             "=".repeat(80),
-            table.to_string()
+            table
         );
 
         Ok(output)
@@ -128,12 +128,10 @@ impl TaskTableFormatter {
         let overdue_tasks: Vec<&Task> = tasks
             .iter()
             .filter(|task| {
-                if let Some(due_date_str) = &task.due_date {
-                    if let Ok(due_date) = DateTime::parse_from_rfc3339(due_date_str) {
-                        return due_date.with_timezone(&Utc) < now;
-                    }
-                }
-                false
+                task.due_date.as_ref()
+                    .and_then(|due_date_str| DateTime::parse_from_rfc3339(due_date_str).ok())
+                    .map(|due_date| due_date.with_timezone(&Utc) < now)
+                    .unwrap_or(false)
             })
             .collect();
 
@@ -151,9 +149,9 @@ impl TaskTableFormatter {
         let mut table = Table::new(overdue_rows);
         table
             .with(Style::modern())
-            .with(Modify::new(Columns::single(0)).with(Alignment::center()))
-            .with(Modify::new(Columns::single(2)).with(Alignment::center()))
-            .with(Modify::new(Columns::single(3)).with(Alignment::center()));
+            .with(Modify::new(Column::from(0)).with(Alignment::center()))
+            .with(Modify::new(Column::from(2)).with(Alignment::center()))
+            .with(Modify::new(Column::from(3)).with(Alignment::center()));
 
         let table_output = table.to_string();
         
