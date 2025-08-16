@@ -26,6 +26,9 @@ pub struct TaskTableRow {
     #[tabled(rename = "Created")]
     pub created_at: String,
 
+    #[tabled(rename = "Completed")]
+    pub completed_at: String,
+
     #[tabled(rename = "Tags")]
     pub tags: String,
 }
@@ -35,10 +38,11 @@ impl From<Task> for TaskTableRow {
         Self {
             id: truncate_string(&task.id, 8),
             title: truncate_string(&task.title, 40),
-            status: task.status,
+            status: format_status(&task.status),
             priority: task.priority.unwrap_or_else(|| "N/A".to_string()),
             due_date: format_date_string(task.due_date.as_deref()),
             created_at: format_date_string(Some(&task.created_at)),
+            completed_at: format_date_string(task.completed_at.as_deref()),
             tags: format_tags(task.tags.as_deref()),
         }
     }
@@ -47,9 +51,9 @@ impl From<Task> for TaskTableRow {
 pub struct TaskTableFormatter;
 
 impl TaskTableFormatter {
-    pub fn format_unfinished_tasks(tasks: &[Task]) -> Result<String> {
+    pub fn format_all_tasks(tasks: &[Task]) -> Result<String> {
         if tasks.is_empty() {
-            return Ok("No unfinished tasks found.".to_string());
+            return Ok("No tasks found.".to_string());
         }
 
         let table_rows: Vec<TaskTableRow> = tasks
@@ -67,7 +71,7 @@ impl TaskTableFormatter {
             .with(Modify::new(Column::from(3)).with(Alignment::center())); // Priority column centered
 
         let output = format!(
-            "\n🎯 Unfinished Tasks ({} total)\n{}\n{}",
+            "\n📋 All Tasks ({} total)\n{}\n{}",
             tasks.len(),
             "=".repeat(80),
             table
@@ -209,5 +213,15 @@ fn format_tags(tags: Option<&[String]>) -> String {
             truncate_string(&tags_str, 30)
         }
         _ => "N/A".to_string(),
+    }
+}
+
+fn format_status(status: &str) -> String {
+    match status.to_lowercase().as_str() {
+        "todo" | "pending" => "To Do".to_string(),
+        "in_progress" => "In Progress".to_string(),
+        "done" | "completed" => "Done".to_string(),
+        "cancelled" => "Cancelled".to_string(),
+        _ => status.to_string(),
     }
 }

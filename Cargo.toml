@@ -1,5 +1,5 @@
 [package]
-name = "mcp_tasks"
+name = "deepseek_mcp_tasks"
 version = "0.1.0"
 edition = "2024"
 description = "A Rust application that integrates with MCP todo server"

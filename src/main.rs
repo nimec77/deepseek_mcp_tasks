@@ -28,16 +28,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// List all unfinished tasks
-    List {
-        /// Show detailed breakdown
-        #[arg(long)]
-        detailed: bool,
-
-        /// Show overdue tasks only
-        #[arg(long)]
-        overdue_only: bool,
-    },
+    /// List all tasks from MCP server
+    List,
     /// Get list of available tools from MCP server
     Tools,
     /// Show task statistics
@@ -79,11 +71,8 @@ async fn main() -> Result<()> {
     info!("MCP Tasks application started");
 
     match cli.command {
-        Commands::List {
-            detailed,
-            overdue_only,
-        } => {
-            handle_list_command(config, detailed, overdue_only).await?;
+        Commands::List => {
+            handle_list_command(config).await?;
         }
         Commands::Tools => {
             handle_tools_list_command(config).await?;
@@ -96,36 +85,18 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn handle_list_command(config: Config, detailed: bool, overdue_only: bool) -> Result<()> {
+async fn handle_list_command(config: Config) -> Result<()> {
     info!("Fetching tasks from MCP server");
 
     // Create MCP client
     let mcp_client = McpClient::new(&config).await?;
 
-    // Fetch unfinished tasks
-    let unfinished_tasks = mcp_client.get_unfinished_tasks().await?;
-
-    if overdue_only {
-        // Show only overdue tasks
-        let overdue_output = TaskTableFormatter::format_overdue_tasks(&unfinished_tasks)?;
-        println!("{}", overdue_output);
-        return Ok(());
-    }
+    // Fetch all tasks
+    let all_tasks = mcp_client.get_all_tasks().await?;
 
     // Show the task table
-    let table_output = TaskTableFormatter::format_unfinished_tasks(&unfinished_tasks)?;
+    let table_output = TaskTableFormatter::format_all_tasks(&all_tasks)?;
     println!("{}", table_output);
-
-    if detailed {
-        // Show additional details
-        let all_tasks = mcp_client.get_all_tasks().await?;
-        let summary =
-            TaskTableFormatter::format_summary_statistics(&unfinished_tasks, all_tasks.len());
-        println!("{}", summary);
-
-        let priority_breakdown = TaskTableFormatter::format_priority_breakdown(&unfinished_tasks);
-        println!("{}", priority_breakdown);
-    }
 
     Ok(())
 }

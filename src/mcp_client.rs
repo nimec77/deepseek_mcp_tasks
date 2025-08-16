@@ -263,20 +263,6 @@ impl McpClient {
 
         Ok(result.tools)
     }
-
-    /// Get all tools using pagination
-    pub async fn get_all_tools(&self) -> Result<Vec<Tool>> {
-        debug!("Getting all available tools from MCP server");
-
-        let peer = self.get_peer().await?;
-
-        // For now, just get the first page of tools
-        // In a real implementation, you might want to implement pagination
-        let result = peer.list_tools(Default::default()).await?;
-
-        debug!("Retrieved {} tools from MCP server", result.tools.len());
-        Ok(result.tools)
-    }
 }
 
 impl Drop for McpClient {
