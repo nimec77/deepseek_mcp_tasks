@@ -43,7 +43,11 @@ enum Commands {
     /// Analyze pending tasks using DeepSeek AI
     Analyze,
     /// Analyze pending tasks using DeepSeek AI with MCP tools
-    AnalyzeWithTools,
+    AnalyzeWithTools {
+        /// Optional path to save the analysis report as JSON
+        #[arg(short, long)]
+        output: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -96,8 +100,8 @@ async fn main() -> Result<()> {
         Commands::Analyze => {
             handle_analyze_command(config).await?;
         }
-        Commands::AnalyzeWithTools => {
-            handle_analyze_with_tools_command(config).await?;
+        Commands::AnalyzeWithTools { output } => {
+            handle_analyze_with_tools_command(config, output).await?;
         }
     }
 
@@ -164,7 +168,7 @@ async fn handle_analyze_command(config: Config) -> Result<()> {
     Ok(())
 }
 
-async fn handle_analyze_with_tools_command(config: Config) -> Result<()> {
+async fn handle_analyze_with_tools_command(config: Config, output_file: Option<String>) -> Result<()> {
     info!("Starting DeepSeek analysis with MCP tools");
 
     // Create MCP client
@@ -210,12 +214,29 @@ async fn handle_analyze_with_tools_command(config: Config) -> Result<()> {
 
     // Analyze the tasks using DeepSeek with MCP tools
     match deepseek_client
-        .analyze_tasks_with_tools(pending_tasks, &mcp_client)
+        .analyze_tasks_with_tools_report(pending_tasks, &mcp_client)
         .await
     {
-        Ok(analysis) => {
+        Ok(report) => {
             println!("🔧 DeepSeek Analysis with MCP Tools:\n");
-            println!("{}", analysis);
+            println!("{}", report.analysis);
+            
+            // Save to JSON file if output path is specified
+            if let Some(output_path) = output_file {
+                match deepseek_client.save_analysis_report(&report, &output_path).await {
+                    Ok(_) => {
+                        println!("\n💾 Analysis report saved to: {}", output_path);
+                        info!("Report saved with {} tasks and {} tool calls", 
+                              report.task_count, 
+                              report.metadata.tool_calls_count.unwrap_or(0));
+                    }
+                    Err(e) => {
+                        error!("Failed to save analysis report: {}", e);
+                        eprintln!("⚠️  Warning: Failed to save report to {}: {}", output_path, e);
+                        eprintln!("Analysis completed successfully but report could not be saved.");
+                    }
+                }
+            }
         }
         Err(e) => {
             error!("DeepSeek tool-enabled analysis failed: {}", e);
