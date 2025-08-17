@@ -45,6 +45,27 @@ pub struct AnalysisMetadata {
     pub analysis_duration_seconds: Option<f64>,
 }
 
+/// Output format for saving analysis reports
+#[derive(Debug, Clone, PartialEq)]
+pub enum OutputFormat {
+    Json,
+    Markdown,
+    PlainText,
+}
+
+impl OutputFormat {
+    /// Determine output format from file extension
+    pub fn from_path(file_path: &str) -> Self {
+        let path = Path::new(file_path);
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("json") => OutputFormat::Json,
+            Some("md") | Some("markdown") => OutputFormat::Markdown,
+            Some("txt") | Some("text") => OutputFormat::PlainText,
+            _ => OutputFormat::Markdown, // Default to Markdown for email convenience
+        }
+    }
+}
+
 pub struct DeepSeekClient {
     client: Client,
     deepseek_api: DeepSeekApiClient,
@@ -144,7 +165,196 @@ Please provide a structured analysis that will help prioritize and organize the 
         )
     }
 
-    /// Save analysis report to a JSON file
+    /// Format analysis report as Markdown (email-friendly)
+    pub fn format_report_as_markdown(&self, report: &AnalysisReport) -> String {
+        let duration = report.metadata.analysis_duration_seconds
+            .map(|d| format!("{:.1}s", d))
+            .unwrap_or_else(|| "N/A".to_string());
+        
+        let tool_calls = report.metadata.tool_calls_count
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+
+        format!(
+r#"# Task Analysis Report
+
+**Generated:** {timestamp}  
+**Model:** {model}  
+**Tasks Analyzed:** {task_count}  
+**Analysis Duration:** {duration}  
+**Tool Calls:** {tool_calls}  
+
+---
+
+## 📋 Tasks Summary
+
+{tasks_summary}
+
+---
+
+## 🤖 AI Analysis
+
+{analysis}
+
+---
+
+## 📊 Report Metadata
+
+- **Tools Enabled:** {tools_enabled}
+- **Generation Time:** {timestamp}
+- **Processing Duration:** {duration}
+- **MCP Tool Interactions:** {tool_calls}
+
+---
+
+*This report was generated automatically by DeepSeek MCP Tasks analyzer.*
+"#,
+            timestamp = report.timestamp.format("%Y-%m-%d %H:%M:%S UTC"),
+            model = report.model,
+            task_count = report.task_count,
+            duration = duration,
+            tool_calls = tool_calls,
+            tasks_summary = self.format_tasks_summary(&report.tasks),
+            analysis = report.analysis,
+            tools_enabled = if report.metadata.tools_enabled { "Yes" } else { "No" },
+        )
+    }
+
+    /// Format analysis report as plain text (maximum compatibility)
+    pub fn format_report_as_text(&self, report: &AnalysisReport) -> String {
+        let duration = report.metadata.analysis_duration_seconds
+            .map(|d| format!("{:.1}s", d))
+            .unwrap_or_else(|| "N/A".to_string());
+        
+        let tool_calls = report.metadata.tool_calls_count
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+
+        format!(
+r#"===============================================
+            TASK ANALYSIS REPORT
+===============================================
+
+Generated: {timestamp}
+Model: {model}
+Tasks Analyzed: {task_count}
+Analysis Duration: {duration}
+Tool Calls: {tool_calls}
+
+===============================================
+                TASKS SUMMARY
+===============================================
+
+{tasks_summary}
+
+===============================================
+               AI ANALYSIS
+===============================================
+
+{analysis}
+
+===============================================
+              REPORT METADATA
+===============================================
+
+Tools Enabled: {tools_enabled}
+Generation Time: {timestamp}
+Processing Duration: {duration}
+MCP Tool Interactions: {tool_calls}
+
+===============================================
+
+This report was generated automatically by DeepSeek MCP Tasks analyzer.
+"#,
+            timestamp = report.timestamp.format("%Y-%m-%d %H:%M:%S UTC"),
+            model = report.model,
+            task_count = report.task_count,
+            duration = duration,
+            tool_calls = tool_calls,
+            tasks_summary = self.format_tasks_summary_text(&report.tasks),
+            analysis = self.strip_markdown(&report.analysis),
+            tools_enabled = if report.metadata.tools_enabled { "Yes" } else { "No" },
+        )
+    }
+
+    /// Format tasks as a summary for Markdown
+    fn format_tasks_summary(&self, tasks: &[crate::mcp_client::Task]) -> String {
+        let mut summary = String::new();
+        
+        for (idx, task) in tasks.iter().enumerate() {
+            summary.push_str(&format!("### {}. {}\n\n", idx + 1, task.title));
+            
+            if let Some(description) = &task.description {
+                summary.push_str(&format!("**Description:** {}\n\n", description));
+            }
+            
+            summary.push_str(&format!("**Status:** {}\n", task.status));
+            
+            if let Some(priority) = &task.priority {
+                summary.push_str(&format!("**Priority:** {}\n", priority));
+            }
+            
+            if let Some(due_date) = &task.due_date {
+                summary.push_str(&format!("**Due Date:** {}\n", due_date));
+            }
+            
+            if let Some(tags) = &task.tags && !tags.is_empty() {
+                summary.push_str(&format!("**Tags:** {}\n", tags.join(", ")));
+            }
+            
+            summary.push_str(&format!("**Created:** {}\n\n", task.created_at));
+            summary.push_str("---\n\n");
+        }
+        
+        summary
+    }
+
+    /// Format tasks as a summary for plain text
+    fn format_tasks_summary_text(&self, tasks: &[crate::mcp_client::Task]) -> String {
+        let mut summary = String::new();
+        
+        for (idx, task) in tasks.iter().enumerate() {
+            summary.push_str(&format!("{}. {}\n", idx + 1, task.title));
+            
+            if let Some(description) = &task.description {
+                summary.push_str(&format!("   Description: {}\n", description));
+            }
+            
+            summary.push_str(&format!("   Status: {}\n", task.status));
+            
+            if let Some(priority) = &task.priority {
+                summary.push_str(&format!("   Priority: {}\n", priority));
+            }
+            
+            if let Some(due_date) = &task.due_date {
+                summary.push_str(&format!("   Due Date: {}\n", due_date));
+            }
+            
+            if let Some(tags) = &task.tags && !tags.is_empty() {
+                summary.push_str(&format!("   Tags: {}\n", tags.join(", ")));
+            }
+            
+            summary.push_str(&format!("   Created: {}\n", task.created_at));
+            summary.push('\n');
+        }
+        
+        summary
+    }
+
+    /// Strip Markdown formatting for plain text output
+    fn strip_markdown(&self, markdown: &str) -> String {
+        markdown
+            .replace("### ", "")
+            .replace("## ", "")
+            .replace("# ", "")
+            .replace("**", "")
+            .replace("*", "")
+            .replace("`", "")
+            .replace("|", "")
+            .replace("---", "-----------------------------------------------")
+    }
+
+    /// Save analysis report to a file in the specified format
     pub async fn save_analysis_report(
         &self,
         report: &AnalysisReport,
@@ -152,8 +362,16 @@ Please provide a structured analysis that will help prioritize and organize the 
     ) -> Result<()> {
         info!("Saving analysis report to {}", file_path);
         
-        let json_content = serde_json::to_string_pretty(report)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize analysis report: {}", e))?;
+        let format = OutputFormat::from_path(file_path);
+        
+        let content = match format {
+            OutputFormat::Json => {
+                serde_json::to_string_pretty(report)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize analysis report: {}", e))?
+            }
+            OutputFormat::Markdown => self.format_report_as_markdown(report),
+            OutputFormat::PlainText => self.format_report_as_text(report),
+        };
         
         let path = Path::new(file_path);
         
@@ -166,10 +384,10 @@ Please provide a structured analysis that will help prioritize and organize the 
         let mut file = File::create(path)
             .map_err(|e| anyhow::anyhow!("Failed to create file {}: {}", file_path, e))?;
         
-        file.write_all(json_content.as_bytes())
+        file.write_all(content.as_bytes())
             .map_err(|e| anyhow::anyhow!("Failed to write to file {}: {}", file_path, e))?;
         
-        info!("Analysis report saved successfully to {}", file_path);
+        info!("Analysis report saved successfully to {} in {:?} format", file_path, format);
         Ok(())
     }
 

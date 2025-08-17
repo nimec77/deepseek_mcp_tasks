@@ -44,7 +44,7 @@ enum Commands {
     Analyze,
     /// Analyze pending tasks using DeepSeek AI with MCP tools
     AnalyzeWithTools {
-        /// Optional path to save the analysis report as JSON
+        /// Optional path to save the analysis report (format auto-detected from extension: .json, .md, .txt)
         #[arg(short, long)]
         output: Option<String>,
     },
@@ -221,11 +221,19 @@ async fn handle_analyze_with_tools_command(config: Config, output_file: Option<S
             println!("🔧 DeepSeek Analysis with MCP Tools:\n");
             println!("{}", report.analysis);
             
-            // Save to JSON file if output path is specified
+            // Save to file if output path is specified
             if let Some(output_path) = output_file {
                 match deepseek_client.save_analysis_report(&report, &output_path).await {
                     Ok(_) => {
+                        let format_desc = match output_path.rsplit('.').next() {
+                            Some("json") => "JSON format (structured data)",
+                            Some("md") | Some("markdown") => "Markdown format (email-friendly)",
+                            Some("txt") | Some("text") => "Plain text format (universal compatibility)",
+                            _ => "Markdown format (email-friendly, default)",
+                        };
+                        
                         println!("\n💾 Analysis report saved to: {}", output_path);
+                        println!("📧 Format: {}", format_desc);
                         info!("Report saved with {} tasks and {} tool calls", 
                               report.task_count, 
                               report.metadata.tool_calls_count.unwrap_or(0));
