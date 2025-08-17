@@ -1,17 +1,19 @@
 # DeepSeek MCP Tasks
 
-A Rust application that integrates with an MCP (Model Context Protocol) todo server to display, manage, and analyze tasks using DeepSeek AI. The application provides both traditional task management capabilities and AI-powered task analysis.
+A Rust application that integrates with an MCP (Model Context Protocol) todo server to display, manage, and analyze tasks using DeepSeek AI. The application provides both traditional task management capabilities and AI-powered task analysis with real-time MCP tool integration.
 
 ## Features
 
-- 🚀 **MCP Integration**: Connects to local MCP todo task server
+- 🚀 **MCP Integration**: Connects to local MCP todo task server via stdio transport
 - 🤖 **DeepSeek AI Integration**: AI-powered task analysis and recommendations
-- 🔧 **Tool-Enabled AI**: DeepSeek can interact with MCP tools for real-time data
-- 📊 **Rich Tables**: Beautiful table formatting with task details
+- 🔧 **Tool-Enabled AI**: DeepSeek can interact with MCP tools for real-time data access
+- 📊 **Rich Tables**: Beautiful table formatting with task details and statistics
 - ⚡ **Fast & Efficient**: Built with async Rust for performance
-- 📈 **Statistics**: Comprehensive task statistics and breakdowns
-- 🎯 **Filtering**: Support for overdue tasks, priorities, and status-based filtering
-- 📝 **Structured Logging**: Comprehensive logging with tracing
+- 📈 **Comprehensive Statistics**: Task breakdowns, priority analysis, and overdue tracking
+- 🎯 **Advanced Filtering**: Support for status-based filtering and task queries
+- 📝 **Structured Logging**: Comprehensive logging with tracing and configurable levels
+- 📧 **Email-Friendly Reports**: Multiple output formats (Markdown, Text, JSON) for easy sharing
+- 🔄 **Retry Logic**: Robust error handling with exponential backoff
 
 ## Prerequisites
 
@@ -47,6 +49,9 @@ MCP_SERVER_ARGS=
 REQUEST_TIMEOUT=30
 MAX_RETRIES=3
 RETRY_DELAY=1000
+
+# Optional: Logging Configuration
+RUST_LOG=info
 ```
 
 Or export these as environment variables:
@@ -54,6 +59,7 @@ Or export these as environment variables:
 export DEEPSEEK_API_KEY="your_deepseek_api_key_here"
 export MCP_SERVER_COMMAND="./mcp_todo_task"
 export MCP_SERVER_ARGS=""
+export RUST_LOG="info"
 ```
 
 ## Setup MCP Todo Server
@@ -70,7 +76,7 @@ export MCP_SERVER_ARGS=""
    ./target/release/mcp_todo_task
    ```
 
-The server should start on `http://127.0.0.1:8000` by default.
+The server should start and be ready to accept stdio-based connections.
 
 ## Usage
 
@@ -111,6 +117,18 @@ Analyze pending tasks using DeepSeek AI with MCP tools (recommended):
 ./target/release/deepseek_mcp_tasks analyze-with-tools
 ```
 
+Save analysis report to file:
+```bash
+# Markdown format (email-friendly)
+./target/release/deepseek_mcp_tasks analyze-with-tools -o reports/analysis.md
+
+# Plain text format (universal compatibility)
+./target/release/deepseek_mcp_tasks analyze-with-tools -o reports/analysis.txt
+
+# JSON format (structured data)
+./target/release/deepseek_mcp_tasks analyze-with-tools -o reports/analysis.json
+```
+
 Enable verbose logging:
 ```bash
 ./target/release/deepseek_mcp_tasks -v list
@@ -120,6 +138,9 @@ Enable verbose logging:
 
 #### `status` command:
 - `<STATUS>`: The status to filter by (e.g., "pending", "in_progress", "completed", "cancelled")
+
+#### `analyze-with-tools` command:
+- `-o, --output <PATH>`: Optional path to save the analysis report (format auto-detected from extension: .json, .md, .txt)
 
 #### Global options:
 - `-v, --verbose`: Enable detailed logging output
@@ -138,6 +159,29 @@ The application provides two types of AI analysis:
 - Can query task details, create task breakdowns, and perform dynamic analysis
 - Provides more comprehensive and up-to-date insights
 - AI can access the full MCP server toolset for enhanced analysis
+- Supports multiple output formats for easy sharing and integration
+
+## Report Output Formats
+
+The `analyze-with-tools` command supports saving reports in multiple formats:
+
+### 📧 Markdown (.md) - Recommended for Email
+- Clean formatting with headers and sections
+- Easy to read in plain text
+- Compatible with most modern platforms
+- Perfect for copying into email bodies
+
+### 📋 Plain Text (.txt) - Universal Compatibility
+- Works in any email client
+- No special formatting characters
+- Easy to copy and paste
+- Clear ASCII separators
+
+### 🔧 JSON (.json) - Structured Data
+- Complete structured data
+- Machine-readable format
+- Includes all metadata
+- Perfect for further processing
 
 ## Example Output
 
@@ -196,23 +240,58 @@ Completion Rate: 50.0%
 
 The application is structured into several modules:
 
-- **`config.rs`**: Configuration management with environment variables
-- **`logger.rs`**: Centralized logging setup with tracing
-- **`mcp_client.rs`**: MCP server communication client
-- **`deepseek_client.rs`**: DeepSeek AI integration and analysis
-- **`tooling.rs`**: MCP tool definitions and execution
-- **`table_formatter.rs`**: Rich table formatting and display
-- **`main.rs`**: CLI interface and application orchestration
+- **`config.rs`**: Configuration management with environment variables and validation
+- **`logger.rs`**: Centralized logging setup with tracing and configurable levels
+- **`mcp_client.rs`**: MCP server communication client with stdio transport
+- **`deepseek_client.rs`**: DeepSeek AI integration, analysis, and report generation
+- **`tooling.rs`**: MCP tool definitions, execution handlers, and DeepSeek API integration
+- **`table_formatter.rs`**: Rich table formatting and display with comprehensive statistics
+- **`main.rs`**: CLI interface with subcommands and application orchestration
 
 ## Error Handling
 
 The application includes comprehensive error handling:
 
-- **Configuration errors**: Clear messages for missing environment variables
-- **API errors**: Detailed error messages for DeepSeek API issues
-- **Network errors**: Retry logic with exponential backoff
-- **Server errors**: Health checks and connection validation
-- **Tool execution errors**: Graceful handling of MCP tool failures
+- **Configuration errors**: Clear messages for missing environment variables with helpful setup instructions
+- **API errors**: Detailed error messages for DeepSeek API issues with troubleshooting steps
+- **Network errors**: Retry logic with exponential backoff and configurable parameters
+- **Server errors**: Health checks and connection validation with MCP server
+- **Tool execution errors**: Graceful handling of MCP tool failures with fallback options
+- **File I/O errors**: Robust report saving with format validation and error recovery
+
+## Development
+
+### Building from Source
+```bash
+# Development build
+cargo build
+
+# Release build
+cargo build --release
+
+# Run tests
+cargo test
+
+# Run with verbose logging
+RUST_LOG=debug cargo run -- -v list
+```
+
+### Project Structure
+```
+deepseek_mcp_tasks/
+├── src/
+│   ├── main.rs              # CLI interface and application entry point
+│   ├── config.rs            # Configuration management
+│   ├── logger.rs            # Logging setup and configuration
+│   ├── mcp_client.rs        # MCP server communication
+│   ├── deepseek_client.rs   # DeepSeek AI integration
+│   ├── tooling.rs           # MCP tool definitions and execution
+│   └── table_formatter.rs   # Table formatting and display
+├── examples/                # Sample reports and documentation
+├── reports/                 # Generated analysis reports
+├── Cargo.toml              # Project dependencies and metadata
+└── README.md               # This file
+```
 
 ## Contributing
 
@@ -231,3 +310,4 @@ This project is open source and available under the [MIT License](LICENSE).
 - Based on [deepseek_mcp_iplocate](https://github.com/nimec77/deepseek_mcp_iplocate) project structure
 - Uses [mcp_todo_task](https://github.com/nimec77/mcp_todo_task) MCP server
 - Powered by [DeepSeek AI](https://platform.deepseek.com/) for intelligent task analysis
+- Built with Rust's async ecosystem including `tokio`, `serde`, and `clap`
