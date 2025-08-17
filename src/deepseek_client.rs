@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use genai::Client;
 use genai::chat::{ChatMessage, ChatRequest};
 use serde::{Deserialize, Serialize};
@@ -7,7 +8,6 @@ use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use chrono::{DateTime, Utc};
 use tracing::{debug, info, warn};
 
 use crate::tooling::{
@@ -167,16 +167,20 @@ Please provide a structured analysis that will help prioritize and organize the 
 
     /// Format analysis report as Markdown (email-friendly)
     pub fn format_report_as_markdown(&self, report: &AnalysisReport) -> String {
-        let duration = report.metadata.analysis_duration_seconds
+        let duration = report
+            .metadata
+            .analysis_duration_seconds
             .map(|d| format!("{:.1}s", d))
             .unwrap_or_else(|| "N/A".to_string());
-        
-        let tool_calls = report.metadata.tool_calls_count
+
+        let tool_calls = report
+            .metadata
+            .tool_calls_count
             .map(|c| c.to_string())
             .unwrap_or_else(|| "N/A".to_string());
 
         format!(
-r#"# Task Analysis Report
+            r#"# Task Analysis Report
 
 **Generated:** {timestamp}  
 **Model:** {model}  
@@ -216,22 +220,30 @@ r#"# Task Analysis Report
             tool_calls = tool_calls,
             tasks_summary = self.format_tasks_summary(&report.tasks),
             analysis = report.analysis,
-            tools_enabled = if report.metadata.tools_enabled { "Yes" } else { "No" },
+            tools_enabled = if report.metadata.tools_enabled {
+                "Yes"
+            } else {
+                "No"
+            },
         )
     }
 
     /// Format analysis report as plain text (maximum compatibility)
     pub fn format_report_as_text(&self, report: &AnalysisReport) -> String {
-        let duration = report.metadata.analysis_duration_seconds
+        let duration = report
+            .metadata
+            .analysis_duration_seconds
             .map(|d| format!("{:.1}s", d))
             .unwrap_or_else(|| "N/A".to_string());
-        
-        let tool_calls = report.metadata.tool_calls_count
+
+        let tool_calls = report
+            .metadata
+            .tool_calls_count
             .map(|c| c.to_string())
             .unwrap_or_else(|| "N/A".to_string());
 
         format!(
-r#"===============================================
+            r#"===============================================
             TASK ANALYSIS REPORT
 ===============================================
 
@@ -273,71 +285,79 @@ This report was generated automatically by DeepSeek MCP Tasks analyzer.
             tool_calls = tool_calls,
             tasks_summary = self.format_tasks_summary_text(&report.tasks),
             analysis = self.strip_markdown(&report.analysis),
-            tools_enabled = if report.metadata.tools_enabled { "Yes" } else { "No" },
+            tools_enabled = if report.metadata.tools_enabled {
+                "Yes"
+            } else {
+                "No"
+            },
         )
     }
 
     /// Format tasks as a summary for Markdown
     fn format_tasks_summary(&self, tasks: &[crate::mcp_client::Task]) -> String {
         let mut summary = String::new();
-        
+
         for (idx, task) in tasks.iter().enumerate() {
             summary.push_str(&format!("### {}. {}\n\n", idx + 1, task.title));
-            
+
             if let Some(description) = &task.description {
                 summary.push_str(&format!("**Description:** {}\n\n", description));
             }
-            
+
             summary.push_str(&format!("**Status:** {}\n", task.status));
-            
+
             if let Some(priority) = &task.priority {
                 summary.push_str(&format!("**Priority:** {}\n", priority));
             }
-            
+
             if let Some(due_date) = &task.due_date {
                 summary.push_str(&format!("**Due Date:** {}\n", due_date));
             }
-            
-            if let Some(tags) = &task.tags && !tags.is_empty() {
+
+            if let Some(tags) = &task.tags
+                && !tags.is_empty()
+            {
                 summary.push_str(&format!("**Tags:** {}\n", tags.join(", ")));
             }
-            
+
             summary.push_str(&format!("**Created:** {}\n\n", task.created_at));
             summary.push_str("---\n\n");
         }
-        
+
         summary
     }
 
     /// Format tasks as a summary for plain text
     fn format_tasks_summary_text(&self, tasks: &[crate::mcp_client::Task]) -> String {
         let mut summary = String::new();
-        
+
         for (idx, task) in tasks.iter().enumerate() {
             summary.push_str(&format!("{}. {}\n", idx + 1, task.title));
-            
+
             if let Some(description) = &task.description {
                 summary.push_str(&format!("   Description: {}\n", description));
             }
-            
+
             summary.push_str(&format!("   Status: {}\n", task.status));
-            
+
             if let Some(priority) = &task.priority {
                 summary.push_str(&format!("   Priority: {}\n", priority));
             }
-            
+
             if let Some(due_date) = &task.due_date {
                 summary.push_str(&format!("   Due Date: {}\n", due_date));
             }
-            
-            if let Some(tags) = &task.tags && !tags.is_empty() {
+
+            if let Some(tags) = &task.tags
+                && !tags.is_empty()
+            {
                 summary.push_str(&format!("   Tags: {}\n", tags.join(", ")));
             }
-            
+
             summary.push_str(&format!("   Created: {}\n", task.created_at));
             summary.push('\n');
         }
-        
+
         summary
     }
 
@@ -361,33 +381,35 @@ This report was generated automatically by DeepSeek MCP Tasks analyzer.
         file_path: &str,
     ) -> Result<()> {
         info!("Saving analysis report to {}", file_path);
-        
+
         let format = OutputFormat::from_path(file_path);
-        
+
         let content = match format {
-            OutputFormat::Json => {
-                serde_json::to_string_pretty(report)
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize analysis report: {}", e))?
-            }
+            OutputFormat::Json => serde_json::to_string_pretty(report)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize analysis report: {}", e))?,
             OutputFormat::Markdown => self.format_report_as_markdown(report),
             OutputFormat::PlainText => self.format_report_as_text(report),
         };
-        
+
         let path = Path::new(file_path);
-        
+
         // Create parent directories if they don't exist
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| anyhow::anyhow!("Failed to create directory {}: {}", parent.display(), e))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                anyhow::anyhow!("Failed to create directory {}: {}", parent.display(), e)
+            })?;
         }
-        
+
         let mut file = File::create(path)
             .map_err(|e| anyhow::anyhow!("Failed to create file {}: {}", file_path, e))?;
-        
+
         file.write_all(content.as_bytes())
             .map_err(|e| anyhow::anyhow!("Failed to write to file {}: {}", file_path, e))?;
-        
-        info!("Analysis report saved successfully to {} in {:?} format", file_path, format);
+
+        info!(
+            "Analysis report saved successfully to {} in {:?} format",
+            file_path, format
+        );
         Ok(())
     }
 
@@ -421,11 +443,12 @@ Provide insights about priorities, dependencies, complexity, and actionable reco
         );
 
         // Start the conversation with tools available
-        let (analysis_content, tool_calls_count) = self.chat_with_tools_detailed(&analysis_prompt, &all_tools, mcp_client)
+        let (analysis_content, tool_calls_count) = self
+            .chat_with_tools_detailed(&analysis_prompt, &all_tools, mcp_client)
             .await?;
-        
+
         let duration = start_time.elapsed();
-        
+
         let report = AnalysisReport {
             timestamp: Utc::now(),
             model: self.model.clone(),
@@ -438,7 +461,7 @@ Provide insights about priorities, dependencies, complexity, and actionable reco
                 analysis_duration_seconds: Some(duration.as_secs_f64()),
             },
         };
-        
+
         Ok(report)
     }
 
@@ -452,7 +475,9 @@ Provide insights about priorities, dependencies, complexity, and actionable reco
         info!("Analyzing tasks with DeepSeek using MCP tools");
 
         // Use the detailed method for backward compatibility
-        let report = self.analyze_tasks_with_tools_report(tasks, mcp_client).await?;
+        let report = self
+            .analyze_tasks_with_tools_report(tasks, mcp_client)
+            .await?;
         Ok(report.analysis)
     }
 
@@ -662,7 +687,10 @@ Provide insights about priorities, dependencies, complexity, and actionable reco
         }
 
         warn!("Reached maximum iteration limit for tool calls");
-        Ok(("Analysis completed with maximum tool call iterations reached.".to_string(), total_tool_calls))
+        Ok((
+            "Analysis completed with maximum tool call iterations reached.".to_string(),
+            total_tool_calls,
+        ))
     }
 
     /// Execute a tool call by routing it to the appropriate MCP function

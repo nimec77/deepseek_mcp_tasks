@@ -168,7 +168,10 @@ async fn handle_analyze_command(config: Config) -> Result<()> {
     Ok(())
 }
 
-async fn handle_analyze_with_tools_command(config: Config, output_file: Option<String>) -> Result<()> {
+async fn handle_analyze_with_tools_command(
+    config: Config,
+    output_file: Option<String>,
+) -> Result<()> {
     info!("Starting DeepSeek analysis with MCP tools");
 
     // Create MCP client
@@ -220,27 +223,37 @@ async fn handle_analyze_with_tools_command(config: Config, output_file: Option<S
         Ok(report) => {
             println!("🔧 DeepSeek Analysis with MCP Tools:\n");
             println!("{}", report.analysis);
-            
+
             // Save to file if output path is specified
             if let Some(output_path) = output_file {
-                match deepseek_client.save_analysis_report(&report, &output_path).await {
+                match deepseek_client
+                    .save_analysis_report(&report, &output_path)
+                    .await
+                {
                     Ok(_) => {
                         let format_desc = match output_path.rsplit('.').next() {
                             Some("json") => "JSON format (structured data)",
                             Some("md") | Some("markdown") => "Markdown format (email-friendly)",
-                            Some("txt") | Some("text") => "Plain text format (universal compatibility)",
+                            Some("txt") | Some("text") => {
+                                "Plain text format (universal compatibility)"
+                            }
                             _ => "Markdown format (email-friendly, default)",
                         };
-                        
+
                         println!("\n💾 Analysis report saved to: {}", output_path);
                         println!("📧 Format: {}", format_desc);
-                        info!("Report saved with {} tasks and {} tool calls", 
-                              report.task_count, 
-                              report.metadata.tool_calls_count.unwrap_or(0));
+                        info!(
+                            "Report saved with {} tasks and {} tool calls",
+                            report.task_count,
+                            report.metadata.tool_calls_count.unwrap_or(0)
+                        );
                     }
                     Err(e) => {
                         error!("Failed to save analysis report: {}", e);
-                        eprintln!("⚠️  Warning: Failed to save report to {}: {}", output_path, e);
+                        eprintln!(
+                            "⚠️  Warning: Failed to save report to {}: {}",
+                            output_path, e
+                        );
                         eprintln!("Analysis completed successfully but report could not be saved.");
                     }
                 }
